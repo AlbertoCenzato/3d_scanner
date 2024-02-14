@@ -1,8 +1,8 @@
 use clap::Parser;
-use image::{imageops, GenericImage, GenericImageView};
-use ndarray;
+use image;
 use rerun;
 use rerun::external::glam;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -10,11 +10,13 @@ struct Args {
     image_dir: PathBuf,
 }
 
+#[derive(Serialize, Deserialize)]
 struct LaserCalib {
     angle: f32,
     baseline: f32,
 }
 
+#[derive(Serialize, Deserialize)]
 struct CameraIntrinsics {
     focal_length: f32,
     height: f32,
