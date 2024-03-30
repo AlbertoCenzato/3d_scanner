@@ -49,7 +49,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         * glam::Affine3A::from_rotation_x(90_f32.to_radians());
     let world_2_cam = cam_2_world.inverse();
 
-    let rec = rerun::RecordingStreamBuilder::new("monkey_head").spawn()?;
+    let reurn_server_address = std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 13)),
+        9876,
+    );
+    let rec = rerun::RecordingStreamBuilder::new("monkey_head")
+        .connect_opts(reurn_server_address, rerun::default_flush_timeout())?;
     log_world_reference_system(&rec)?;
 
     let args = Args::parse();
