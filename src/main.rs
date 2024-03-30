@@ -1,3 +1,7 @@
+mod cameras;
+
+use cameras::cameras::DiskLoaderCamera;
+use cameras::cameras::GrayscaleCamera;
 use clap::Parser;
 use image;
 use rerun;
@@ -58,15 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     log_world_reference_system(&rec)?;
 
     let args = Args::parse();
-    let mut files: Vec<PathBuf> = args
-        .image_dir
-        .read_dir()?
-        .filter_map(|f| match f {
-            Ok(entry) => Some(entry.path()),
-            Err(_) => None,
-        })
-        .collect();
-    files.sort();
+    let mut camera = DiskLoaderCamera::from_directory(&args.image_dir)?;
 
     println!("Processing files from {}", args.image_dir.display());
 
@@ -85,7 +81,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let mut point_cloud = Vec::<glam::Vec3>::new();
-    for (i, file) in files.iter().enumerate() {
+    let mut i = 0;
+    let mut image = camera.get_image();
+    while let Some(luma_img) = image {
         rec.set_time_sequence("timeline", i as i64);
 
         let angle = (1.0 as f32).to_radians();
@@ -93,9 +91,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for point in &mut point_cloud {
             *point = transform.transform_point3(*point);
         }
-
-        let img = image::open(file).unwrap();
-        let luma_img = img.as_luma8().unwrap();
 
         println!("Image info: dimensions {:?}", luma_img.dimensions(),);
 
@@ -158,6 +153,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
 
         point_cloud.append(&mut points_3d_world);
+        i = i + 1;
+        image = camera.get_image();
     }
 
     Ok(())
