@@ -1,0 +1,55 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558 
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build: debug raspberry pi",
+            "type": "shell",
+            "command": "cross",
+            "args": [
+                "build", "--target", "arm-unknown-linux-gnueabihf"],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+		{
+            "label": "Build: release raspberry pi",
+            "type": "shell",
+            "command": "cross",
+            "args": [
+                "build", "--target", "arm-unknown-linux-gnueabihf", "--release"],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+		{
+            "label": "Deploy: debug raspberry pi",
+            "type": "shell",
+            "command": "scp",
+            "args": [ "target/arm-unknown-linux-gnueabihf/debug/scanner_3d", "raspberry:~/scanner_3d" ],
+            "group": "none",
+            "dependsOn": [
+                "Build: debug raspberry pi",
+            ],
+        },
+		{
+            "label": "Deploy: release raspberry pi",
+            "type": "shell",
+            "command": "scp",
+            "args": [ "target/arm-unknown-linux-gnueabihf/release/scanner_3d", "raspberry:~/scanner_3d" ],
+            "group": "none",
+            "dependsOn": [
+                "Build: release raspberry pi",
+            ],
+        },
+    ]
+}
