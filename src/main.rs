@@ -1,9 +1,10 @@
 mod cameras;
 
-use cameras::cameras::DiskLoaderCamera;
-use cameras::cameras::GrayscaleCamera;
+use cameras::get_camera;
+use cameras::CameraType;
 use clap::Parser;
 use image;
+use image::DynamicImage;
 use rerun;
 use rerun::external::glam;
 use serde::{Deserialize, Serialize};
@@ -54,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let world_2_cam = cam_2_world.inverse();
 
     let reurn_server_address = std::net::SocketAddr::new(
-        std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 13)),
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         9876,
     );
     let rec = rerun::RecordingStreamBuilder::new("monkey_head")
@@ -66,8 +67,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Processing files from {}", args.image_dir.display());
 
+    let camera_type = CameraType::DiskLoader(args.image_dir);
+    let mut camera = get_camera(camera_type)?;
+
     let focal_length_px = camera_intrinsics.focal_length / camera_intrinsics.meters_per_px;
-    rec.log_timeless(
+    rec.log_static(
         "world/camera",
         &rerun::Pinhole::from_focal_length_and_resolution(
             [focal_length_px, focal_length_px],
@@ -75,7 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     )?;
     let (_, rotation, translation) = world_2_cam.to_scale_rotation_translation();
-    rec.log_timeless(
+    rec.log_static(
         "world/camera",
         &rerun::Transform3D::from_translation_rotation(translation, rotation),
     )?;
@@ -96,10 +100,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let width = luma_img.width();
         let height = luma_img.height();
-
-        let tensor = rerun::TensorData::from_image(luma_img.clone())?;
-        rec.log("world/camera/image", &rerun::Image::new(tensor))?;
-
         let img_2_cam2 = glam::Affine2::from_translation(-glam::Vec2::new(
             (width as f32) / 2_f32,
             (height as f32) / 2_f32,
@@ -110,6 +110,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|p| img_2_cam2.transform_point2(*p))
             .map(|p| glam::vec3(p.x, p.y, focal_length_px))
             .collect();
+
+let img = DynamicImage::ImageLuma8(luma_img);
+        let tensor = rerun::TensorData::from_dynamic_image(img)?;
+        rec.log("world/camera/image", &rerun::Image::new(tensor))?;
 
         let mut left_laser_points = Vec::<glam::Vec3>::new();
         let mut right_laser_points = Vec::<glam::Vec3>::new();
