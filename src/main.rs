@@ -29,61 +29,72 @@ struct CameraIntrinsics {
     meters_per_px: f32,
 }
 
-const AXIS_SIZE: f32 = 0.01_f32;
+impl CameraIntrinsics {
+    fn focal_length_px(&self) -> f32 {
+        return self.focal_length / self.meters_per_px;
+    }
+}
+
+struct CameraCalib {
+    intrinsics: CameraIntrinsics,
+    extrinsics: glam::Affine3A,
+}
+
+impl CameraCalib {
+    fn new() -> CameraCalib {
+        let intrinsics = CameraIntrinsics {
+            focal_length: 0.00474,
+            height: 1280.0,
+            width: 720.0,
+            meters_per_px: 0.000005039,
+        };
+
+        let t = glam::vec3(0.129_f32, 0_f32, 0.246_f32);
+        let rx = 0_f32.to_radians();
+        let ry = 59_f32.to_radians();
+        let rz = 0_f32.to_radians();
+        let rot = glam::Quat::from_euler(glam::EulerRot::XYZ, rx, ry, rz);
+        let extrinsics = glam::Affine3A::from_rotation_translation(rot, t);
+        return CameraCalib {
+            intrinsics,
+            extrinsics,
+        };
+    }
+}
+
+const AXIS_SIZE: f32 = 0.1_f32;
 const LOW_THRESHOLD: u8 = 30;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // TODO(alberto): load calibration from file
     let right_laser_calib = LaserCalib {
-        angle: 20_f32.to_radians(),
-        baseline: 0.2,
+        angle: 30_f32.to_radians(),
+        baseline: 0.1,
     };
     let left_laser_calib = LaserCalib {
-        angle: -20_f32.to_radians(),
-        baseline: -0.2,
+        angle: -30_f32.to_radians(),
+        baseline: -0.1,
     };
-
-    let camera_intrinsics = CameraIntrinsics {
-        focal_length: 0.00474,
-        height: 1280.0,
-        width: 720.0,
-        meters_per_px: 0.000005039,
-    };
-
-    let cam_2_world = glam::Affine3A::from_translation(glam::vec3(0_f32, 0.15_f32, 0.4_f32))
-        * glam::Affine3A::from_rotation_y(90_f32.to_radians())
-        * glam::Affine3A::from_rotation_x(90_f32.to_radians());
-    let world_2_cam = cam_2_world.inverse();
+    let camera_calib = CameraCalib::new();
 
     let reurn_server_address = std::net::SocketAddr::new(
         std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         9876,
     );
-    let rec = rerun::RecordingStreamBuilder::new("monkey_head")
-        .connect_opts(reurn_server_address, rerun::default_flush_timeout())?;
-    log_world_reference_system(&rec)?;
 
     let args = Args::parse();
-    let mut camera = DiskLoaderCamera::from_directory(&args.image_dir)?;
+
+    let rec = rerun::RecordingStreamBuilder::new("monkey_head")
+        .connect_opts(reurn_server_address, rerun::default_flush_timeout())?;
+    log_world_entities(&rec, &camera_calib)?;
 
     println!("Processing files from {}", args.image_dir.display());
 
     let camera_type = CameraType::DiskLoader(args.image_dir);
     let mut camera = get_camera(camera_type)?;
 
-    let focal_length_px = camera_intrinsics.focal_length / camera_intrinsics.meters_per_px;
-    rec.log_static(
-        "world/camera",
-        &rerun::Pinhole::from_focal_length_and_resolution(
-            [focal_length_px, focal_length_px],
-            [camera_intrinsics.width, camera_intrinsics.height],
-        ),
-    )?;
-    let (_, rotation, translation) = world_2_cam.to_scale_rotation_translation();
-    rec.log_static(
-        "world/camera",
-        &rerun::Transform3D::from_translation_rotation(translation, rotation),
-    )?;
-
+    let focal_length_px = camera_calib.intrinsics.focal_length_px();
+    let meters_per_px = camera_calib.intrinsics.meters_per_px;
     let mut point_cloud = Vec::<glam::Vec3>::new();
     let mut i = 0;
     let mut image = camera.get_image();
@@ -111,7 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|p| glam::vec3(p.x, p.y, focal_length_px))
             .collect();
 
-let img = DynamicImage::ImageLuma8(luma_img);
+        let img = DynamicImage::ImageLuma8(luma_img);
         let tensor = rerun::TensorData::from_dynamic_image(img)?;
         rec.log("world/camera/image", &rerun::Image::new(tensor))?;
 
@@ -127,13 +138,11 @@ let img = DynamicImage::ImageLuma8(luma_img);
 
         let mut right_projected_points: Vec<glam::Vec3> = right_laser_points
             .iter()
-            .map(|p| {
-                project_on_laser_plane(*p, &right_laser_calib, camera_intrinsics.meters_per_px)
-            })
+            .map(|p| project_on_laser_plane(*p, &right_laser_calib, meters_per_px))
             .collect();
         let mut left_projected_points: Vec<glam::Vec3> = left_laser_points
             .iter()
-            .map(|p| project_on_laser_plane(*p, &left_laser_calib, camera_intrinsics.meters_per_px))
+            .map(|p| project_on_laser_plane(*p, &left_laser_calib, meters_per_px))
             .collect();
 
         let mut points = Vec::<glam::Vec3>::new();
@@ -142,8 +151,8 @@ let img = DynamicImage::ImageLuma8(luma_img);
 
         let mut points_3d_world: Vec<glam::Vec3> = points
             .iter()
-            .map(|p| camera_intrinsics.meters_per_px * (*p))
-            .map(|p| world_2_cam.transform_point3(p))
+            .map(|p| meters_per_px * (*p))
+            .map(|p| camera_calib.extrinsics.transform_point3(p))
             .collect();
 
         rec.log(
@@ -164,6 +173,40 @@ let img = DynamicImage::ImageLuma8(luma_img);
     Ok(())
 }
 
+fn log_world_entities(
+    rec: &rerun::RecordingStream,
+    camera_calib: &CameraCalib,
+) -> rerun::RecordingStreamResult<()> {
+    log_world_reference_system(rec)?;
+    log_camera_pose(rec, camera_calib)?;
+    Ok(())
+}
+
+fn log_camera_pose(
+    rec: &rerun::RecordingStream,
+    camera_calib: &CameraCalib,
+) -> rerun::RecordingStreamResult<()> {
+    let focal = camera_calib.intrinsics.focal_length_px();
+    rec.log_static(
+        "world/camera",
+        &rerun::Pinhole::from_focal_length_and_resolution(
+            [focal, focal],
+            [
+                camera_calib.intrinsics.width,
+                camera_calib.intrinsics.height,
+            ],
+        )
+        .with_camera_xyz(rerun::components::ViewCoordinates::DLB),
+    )?;
+
+    let (_, rotation, translation) = camera_calib.extrinsics.to_scale_rotation_translation();
+    rec.log_static(
+        "world/camera",
+        &rerun::Transform3D::from_translation_rotation(translation, rotation),
+    )?;
+    Ok(())
+}
+
 fn log_world_reference_system(rec: &rerun::RecordingStream) -> rerun::RecordingStreamResult<()> {
     let camera_axis = vec![
         AXIS_SIZE * glam::Vec3::X,
@@ -175,7 +218,7 @@ fn log_world_reference_system(rec: &rerun::RecordingStream) -> rerun::RecordingS
         rerun::Color::from_rgb(0, 255, 0),
         rerun::Color::from_rgb(0, 0, 255),
     ];
-    return rec.log(
+    return rec.log_static(
         "world/axis",
         &rerun::Arrows3D::from_vectors(camera_axis.clone()).with_colors(colors.clone()),
     );
