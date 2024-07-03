@@ -1,15 +1,16 @@
+mod calibration;
 mod cameras;
 
-use anyhow::Result;
+use calibration::{load_calibration, CameraCalib, LaserCalib};
 use cameras::get_camera;
 use cameras::CameraType;
+
+use anyhow::Result;
 use clap::Parser;
 use image;
 use image::DynamicImage;
 use rerun;
 use rerun::external::glam;
-use serde::{Deserialize, Serialize};
-use serde_json;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -21,76 +22,6 @@ struct Args {
     rerun_ip: std::net::Ipv4Addr,
     #[clap(default_value = "9876")]
     rerun_port: u16,
-}
-
-#[derive(Serialize, Deserialize)]
-struct LaserCalib {
-    // TODO(alberto): generalize to 3D
-    angle: f32,
-    baseline: f32,
-}
-
-impl LaserCalib {
-    fn angle_rad(&self) -> f32 {
-        return self.angle.to_radians();
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct RefSysTransform {
-    rotation: glam::Vec3,
-    translation: glam::Vec3,
-}
-
-impl RefSysTransform {
-    fn as_affine(&self) -> glam::Affine3A {
-        let rot = glam::Quat::from_euler(
-            glam::EulerRot::XYZ,
-            self.rotation.x.to_radians(),
-            self.rotation.y.to_radians(),
-            self.rotation.z.to_radians(),
-        );
-        return glam::Affine3A::from_rotation_translation(rot, self.translation);
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct CameraIntrinsics {
-    focal_length: f32,
-    height: f32,
-    width: f32,
-    meters_per_px: f32,
-}
-
-impl CameraIntrinsics {
-    fn focal_length_px(&self) -> f32 {
-        return self.focal_length / self.meters_per_px;
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct CameraCalib {
-    intrinsics: CameraIntrinsics,
-    extrinsics: RefSysTransform,
-    cam_2_img_plane_rotation: glam::Vec3,
-}
-
-impl CameraCalib {
-    fn img_plane_2_cam(&self) -> glam::Affine3A {
-        let t = glam::vec3(0_f32, 0_f32, -self.intrinsics.focal_length);
-        let rx = self.cam_2_img_plane_rotation.x.to_radians();
-        let ry = self.cam_2_img_plane_rotation.y.to_radians();
-        let rz = self.cam_2_img_plane_rotation.z.to_radians();
-        let rot = glam::Quat::from_euler(glam::EulerRot::XYZ, rx, ry, rz);
-        return glam::Affine3A::from_rotation_translation(rot, t).inverse();
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct Calibration {
-    camera: CameraCalib,
-    left_laser: LaserCalib,
-    right_laser: LaserCalib,
 }
 
 const AXIS_SIZE: f32 = 0.1_f32;
@@ -189,13 +120,6 @@ fn main() -> Result<()> {
     }
 
     Ok(())
-}
-
-fn load_calibration(path: &std::path::Path) -> Result<Calibration> {
-    let file = std::fs::File::open(path)?;
-    let reader = std::io::BufReader::new(file);
-    let json: Calibration = serde_json::from_reader(reader)?;
-    return Ok(json);
 }
 
 fn log_world_entities(
