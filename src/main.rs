@@ -1,5 +1,6 @@
 mod cameras;
 
+use anyhow::Result;
 use cameras::get_camera;
 use cameras::CameraType;
 use clap::Parser;
@@ -8,17 +9,26 @@ use image::DynamicImage;
 use rerun;
 use rerun::external::glam;
 use serde::{Deserialize, Serialize};
+use serde_json;
 use std::path::PathBuf;
 
 #[derive(Parser)]
 struct Args {
     image_dir: PathBuf,
+    #[clap(default_value = "calibration.json")]
+    calibration: PathBuf,
 }
 
 #[derive(Serialize, Deserialize)]
 struct LaserCalib {
     angle: f32,
     baseline: f32,
+}
+
+impl LaserCalib {
+    fn angle_rad(&self) -> f32 {
+        return self.angle.to_radians();
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -35,58 +45,51 @@ impl CameraIntrinsics {
     }
 }
 
-struct CameraCalib {
-    intrinsics: CameraIntrinsics,
-    extrinsics: glam::Affine3A,
+#[derive(Serialize, Deserialize)]
+struct CameraExtrinsics {
+    rotation: glam::Vec3,
+    translation: glam::Vec3,
 }
 
-impl CameraCalib {
-    fn new() -> CameraCalib {
-        let intrinsics = CameraIntrinsics {
-            focal_length: 0.00474,
-            height: 1280.0,
-            width: 720.0,
-            meters_per_px: 0.000005039,
-        };
-
-        let t = glam::vec3(0.129_f32, 0_f32, 0.246_f32);
-        let rx = 0_f32.to_radians();
-        let ry = 59_f32.to_radians();
-        let rz = 0_f32.to_radians();
-        let rot = glam::Quat::from_euler(glam::EulerRot::XYZ, rx, ry, rz);
-        let extrinsics = glam::Affine3A::from_rotation_translation(rot, t);
-        return CameraCalib {
-            intrinsics,
-            extrinsics,
-        };
+impl CameraExtrinsics {
+    fn as_affine(&self) -> glam::Affine3A {
+        let rot = glam::Quat::from_euler(
+            glam::EulerRot::XYZ,
+            self.rotation.x.to_radians(),
+            self.rotation.y.to_radians(),
+            self.rotation.z.to_radians(),
+        );
+        return glam::Affine3A::from_rotation_translation(rot, self.translation);
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct CameraCalib {
+    intrinsics: CameraIntrinsics,
+    extrinsics: CameraExtrinsics,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Calibration {
+    camera: CameraCalib,
+    left_laser: LaserCalib,
+    right_laser: LaserCalib,
 }
 
 const AXIS_SIZE: f32 = 0.1_f32;
 const LOW_THRESHOLD: u8 = 30;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // TODO(alberto): load calibration from file
-    let right_laser_calib = LaserCalib {
-        angle: 30_f32.to_radians(),
-        baseline: 0.1,
-    };
-    let left_laser_calib = LaserCalib {
-        angle: -30_f32.to_radians(),
-        baseline: -0.1,
-    };
-    let camera_calib = CameraCalib::new();
+fn main() -> Result<()> {
+    let args = Args::parse();
+    let calib = load_calibration(&args.calibration)?;
 
     let reurn_server_address = std::net::SocketAddr::new(
         std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         9876,
     );
-
-    let args = Args::parse();
-
-    let rec = rerun::RecordingStreamBuilder::new("monkey_head")
+    let rec = rerun::RecordingStreamBuilder::new("3d_scanner")
         .connect_opts(reurn_server_address, rerun::default_flush_timeout())?;
-    log_world_entities(&rec, &camera_calib)?;
+    log_world_entities(&rec, &calib.camera)?;
 
     println!("Processing files from {}", args.image_dir.display());
 
@@ -100,8 +103,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cam_2_img_plane = glam::Affine3A::from_rotation_translation(rot, t);
     let img_plane_2_cam = cam_2_img_plane.inverse();
 
-    let focal_length_px = camera_calib.intrinsics.focal_length_px();
-    let meters_per_px = camera_calib.intrinsics.meters_per_px;
+    let focal_length_px = calib.camera.intrinsics.focal_length_px();
+    let meters_per_px = calib.camera.intrinsics.meters_per_px;
+    let camera_extrinsics = calib.camera.extrinsics.as_affine();
+
     let mut point_cloud = Vec::<glam::Vec3>::new();
     let mut i = 0;
     let mut image = camera.get_image();
@@ -143,11 +148,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut right_projected_points: Vec<glam::Vec3> = right_laser_points
             .iter()
-            .map(|p| project_on_laser_plane(*p, &right_laser_calib, meters_per_px))
+            .map(|p| project_on_laser_plane(*p, &calib.right_laser, meters_per_px))
             .collect();
         let mut left_projected_points: Vec<glam::Vec3> = left_laser_points
             .iter()
-            .map(|p| project_on_laser_plane(*p, &left_laser_calib, meters_per_px))
+            .map(|p| project_on_laser_plane(*p, &calib.left_laser, meters_per_px))
             .collect();
 
         let mut points = Vec::<glam::Vec3>::new();
@@ -158,7 +163,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .iter()
             .map(|p| meters_per_px * (*p))
             .map(|p| img_plane_2_cam.transform_point3(p))
-            .map(|p| camera_calib.extrinsics.transform_point3(p))
+            .map(|p| camera_extrinsics.transform_point3(p))
             .collect();
 
         rec.log(
@@ -177,6 +182,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn load_calibration(path: &std::path::Path) -> Result<Calibration> {
+    let file = std::fs::File::open(path)?;
+    let reader = std::io::BufReader::new(file);
+    let json: Calibration = serde_json::from_reader(reader)?;
+    return Ok(json);
 }
 
 fn log_world_entities(
@@ -205,7 +217,8 @@ fn log_camera_pose(
         .with_camera_xyz(rerun::components::ViewCoordinates::DLB),
     )?;
 
-    let (_, rotation, translation) = camera_calib.extrinsics.to_scale_rotation_translation();
+    let extrinsics = camera_calib.extrinsics.as_affine();
+    let (_, rotation, translation) = extrinsics.to_scale_rotation_translation();
     rec.log_static(
         "world/camera",
         &rerun::Transform3D::from_translation_rotation(translation, rotation),
@@ -262,6 +275,6 @@ fn project_on_laser_plane(
     meters_per_px: f32,
 ) -> glam::Vec3 {
     let laser_baseline_px = laser_calib.baseline / meters_per_px;
-    let denominator = p.z * laser_calib.angle.tan() + p.x;
+    let denominator = p.z * laser_calib.angle_rad().tan() + p.x;
     p * (laser_baseline_px / denominator)
 }
