@@ -17,6 +17,10 @@ struct Args {
     image_dir: PathBuf,
     #[clap(default_value = "calibration.json")]
     calibration: PathBuf,
+    #[clap(default_value = "127.0.0.1")]
+    rerun_ip: std::net::Ipv4Addr,
+    #[clap(default_value = "9876")]
+    rerun_port: u16,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -96,10 +100,8 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let calib = load_calibration(&args.calibration)?;
 
-    let reurn_server_address = std::net::SocketAddr::new(
-        std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
-        9876,
-    );
+    let reurn_server_address =
+        std::net::SocketAddr::new(std::net::IpAddr::V4(args.rerun_ip), args.rerun_port);
     let rec = rerun::RecordingStreamBuilder::new("3d_scanner")
         .connect_opts(reurn_server_address, rerun::default_flush_timeout())?;
     log_world_entities(&rec, &calib.camera)?;
