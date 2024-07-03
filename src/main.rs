@@ -21,6 +21,7 @@ struct Args {
 
 #[derive(Serialize, Deserialize)]
 struct LaserCalib {
+    // TODO(alberto): generalize to 3D
     angle: f32,
     baseline: f32,
 }
@@ -28,6 +29,24 @@ struct LaserCalib {
 impl LaserCalib {
     fn angle_rad(&self) -> f32 {
         return self.angle.to_radians();
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct RefSysTransform {
+    rotation: glam::Vec3,
+    translation: glam::Vec3,
+}
+
+impl RefSysTransform {
+    fn as_affine(&self) -> glam::Affine3A {
+        let rot = glam::Quat::from_euler(
+            glam::EulerRot::XYZ,
+            self.rotation.x.to_radians(),
+            self.rotation.y.to_radians(),
+            self.rotation.z.to_radians(),
+        );
+        return glam::Affine3A::from_rotation_translation(rot, self.translation);
     }
 }
 
@@ -46,27 +65,21 @@ impl CameraIntrinsics {
 }
 
 #[derive(Serialize, Deserialize)]
-struct CameraExtrinsics {
-    rotation: glam::Vec3,
-    translation: glam::Vec3,
-}
-
-impl CameraExtrinsics {
-    fn as_affine(&self) -> glam::Affine3A {
-        let rot = glam::Quat::from_euler(
-            glam::EulerRot::XYZ,
-            self.rotation.x.to_radians(),
-            self.rotation.y.to_radians(),
-            self.rotation.z.to_radians(),
-        );
-        return glam::Affine3A::from_rotation_translation(rot, self.translation);
-    }
-}
-
-#[derive(Serialize, Deserialize)]
 struct CameraCalib {
     intrinsics: CameraIntrinsics,
-    extrinsics: CameraExtrinsics,
+    extrinsics: RefSysTransform,
+    cam_2_img_plane_rotation: glam::Vec3,
+}
+
+impl CameraCalib {
+    fn img_plane_2_cam(&self) -> glam::Affine3A {
+        let t = glam::vec3(0_f32, 0_f32, -self.intrinsics.focal_length);
+        let rx = self.cam_2_img_plane_rotation.x.to_radians();
+        let ry = self.cam_2_img_plane_rotation.y.to_radians();
+        let rz = self.cam_2_img_plane_rotation.z.to_radians();
+        let rot = glam::Quat::from_euler(glam::EulerRot::XYZ, rx, ry, rz);
+        return glam::Affine3A::from_rotation_translation(rot, t).inverse();
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -96,16 +109,7 @@ fn main() -> Result<()> {
     let camera_type = CameraType::DiskLoader(args.image_dir);
     let mut camera = get_camera(camera_type)?;
 
-    let t = glam::vec3(0_f32, 0_f32, 0_f32);
-    let ry = 180_f32.to_radians();
-    let rz = 90_f32.to_radians();
-    let rot = glam::Quat::from_euler(glam::EulerRot::XYZ, 0_f32, ry, rz);
-    let cam_2_img_plane = glam::Affine3A::from_rotation_translation(rot, t);
-    let img_plane_2_cam = cam_2_img_plane.inverse();
-
-    let focal_length_px = calib.camera.intrinsics.focal_length_px();
-    let meters_per_px = calib.camera.intrinsics.meters_per_px;
-    let camera_extrinsics = calib.camera.extrinsics.as_affine();
+    let img_plane_2_world = calib.camera.extrinsics.as_affine() * calib.camera.img_plane_2_cam();
 
     let mut point_cloud = Vec::<glam::Vec3>::new();
     let mut i = 0;
@@ -126,6 +130,7 @@ fn main() -> Result<()> {
         let img_2_img_center =
             glam::Affine3A::from_translation(-glam::vec3(width / 2_f32, height / 2_f32, 0_f32));
 
+        let focal_length_px = calib.camera.intrinsics.focal_length_px();
         let points: Vec<glam::Vec3> = detect_laser_points(&luma_img)
             .iter()
             .map(|p| glam::vec3(p.x, p.y, focal_length_px))
@@ -146,6 +151,7 @@ fn main() -> Result<()> {
             }
         }
 
+        let meters_per_px = calib.camera.intrinsics.meters_per_px;
         let mut right_projected_points: Vec<glam::Vec3> = right_laser_points
             .iter()
             .map(|p| project_on_laser_plane(*p, &calib.right_laser, meters_per_px))
@@ -162,8 +168,7 @@ fn main() -> Result<()> {
         let mut points_3d_world: Vec<glam::Vec3> = points
             .iter()
             .map(|p| meters_per_px * (*p))
-            .map(|p| img_plane_2_cam.transform_point3(p))
-            .map(|p| camera_extrinsics.transform_point3(p))
+            .map(|p| img_plane_2_world.transform_point3(p))
             .collect();
 
         rec.log(
