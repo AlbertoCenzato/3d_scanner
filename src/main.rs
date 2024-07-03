@@ -2,18 +2,16 @@ mod calibration;
 mod cameras;
 mod logging;
 
-use calibration::{load_calibration, CameraCalib, LaserCalib};
+use calibration::{load_calibration, LaserCalib};
 use cameras::get_camera;
 use cameras::CameraType;
 
-use logging::{Logger, RerunLogger};
+use logging::make_logger;
 
 use anyhow::Result;
 use clap::Parser;
 use image;
 use image::DynamicImage;
-use rerun;
-use rerun::external::glam;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -35,7 +33,7 @@ fn main() -> Result<()> {
 
     let reurn_server_address =
         std::net::SocketAddr::new(std::net::IpAddr::V4(args.rerun_ip), args.rerun_port);
-    let rec = RerunLogger::new("3d_scanner", reurn_server_address)?;
+    let rec = make_logger("3d_scanner", reurn_server_address)?;
     rec.log_camera("world/camera", &calib.camera)?;
 
     println!("Processing files from {}", args.image_dir.display());

@@ -5,13 +5,14 @@ edition = "2021"
 
 [features]
 camera = ["dep:libcamera"]
+rerun = ["dep:rerun"]
 
 [dependencies]
 clap = { version = "4.4.18", features = ["derive"] }
 glam = { version = "0.22.0", features = ["serde"] } # same version as in rerun 0.16.1
 image = "0.24.9" # same version as in rerun 0.16.1
-rerun = { version = "0.16.1", features = ["sdk", "glam", "image"], default-features = false }
 serde = { version = "1.0.196", features = ["derive"] }
 serde_json = "1.0.80"
-libcamera = { version = "0.2.3", optional=true }
 anyhow = "1.0.44"
+rerun = { version = "0.16.1", features = ["sdk", "glam", "image"], default-features = false, optional = true}
+libcamera = { version = "0.2.3", optional=true }
