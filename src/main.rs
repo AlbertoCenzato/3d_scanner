@@ -93,6 +93,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let camera_type = CameraType::DiskLoader(args.image_dir);
     let mut camera = get_camera(camera_type)?;
 
+    let t = glam::vec3(0_f32, 0_f32, 0_f32);
+    let ry = 180_f32.to_radians();
+    let rz = 90_f32.to_radians();
+    let rot = glam::Quat::from_euler(glam::EulerRot::XYZ, 0_f32, ry, rz);
+    let cam_2_img_plane = glam::Affine3A::from_rotation_translation(rot, t);
+    let img_plane_2_cam = cam_2_img_plane.inverse();
+
     let focal_length_px = camera_calib.intrinsics.focal_length_px();
     let meters_per_px = camera_calib.intrinsics.meters_per_px;
     let mut point_cloud = Vec::<glam::Vec3>::new();
@@ -109,17 +116,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("Image info: dimensions {:?}", luma_img.dimensions(),);
 
-        let width = luma_img.width();
-        let height = luma_img.height();
-        let img_2_cam2 = glam::Affine2::from_translation(-glam::Vec2::new(
-            (width as f32) / 2_f32,
-            (height as f32) / 2_f32,
-        ));
+        let width = luma_img.width() as f32;
+        let height = luma_img.height() as f32;
+        let img_2_img_center =
+            glam::Affine3A::from_translation(-glam::vec3(width / 2_f32, height / 2_f32, 0_f32));
 
         let points: Vec<glam::Vec3> = detect_laser_points(&luma_img)
             .iter()
-            .map(|p| img_2_cam2.transform_point2(*p))
             .map(|p| glam::vec3(p.x, p.y, focal_length_px))
+            .map(|p| img_2_img_center.transform_point3(p))
             .collect();
 
         let img = DynamicImage::ImageLuma8(luma_img);
@@ -152,12 +157,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut points_3d_world: Vec<glam::Vec3> = points
             .iter()
             .map(|p| meters_per_px * (*p))
+            .map(|p| img_plane_2_cam.transform_point3(p))
             .map(|p| camera_calib.extrinsics.transform_point3(p))
             .collect();
 
         rec.log(
             "world/points_3d_cam",
-            &rerun::Points3D::new(points_3d_world.clone()),
+            &rerun::Points3D::new(points_3d_world.clone()).with_colors([0, 0, 255]),
         )?;
 
         rec.log(
@@ -207,7 +213,7 @@ fn log_camera_pose(
     Ok(())
 }
 
-fn log_world_reference_system(rec: &rerun::RecordingStream) -> rerun::RecordingStreamResult<()> {
+fn make_axis() -> rerun::Arrows3D {
     let camera_axis = vec![
         AXIS_SIZE * glam::Vec3::X,
         AXIS_SIZE * glam::Vec3::Y,
@@ -218,10 +224,12 @@ fn log_world_reference_system(rec: &rerun::RecordingStream) -> rerun::RecordingS
         rerun::Color::from_rgb(0, 255, 0),
         rerun::Color::from_rgb(0, 0, 255),
     ];
-    return rec.log_static(
-        "world/axis",
-        &rerun::Arrows3D::from_vectors(camera_axis.clone()).with_colors(colors.clone()),
-    );
+    return rerun::Arrows3D::from_vectors(camera_axis).with_colors(colors);
+}
+
+fn log_world_reference_system(rec: &rerun::RecordingStream) -> rerun::RecordingStreamResult<()> {
+    let axis = make_axis();
+    return rec.log_static("world/axis", &axis);
 }
 
 fn detect_laser_points(image: &image::GrayImage) -> Vec<glam::Vec2> {
