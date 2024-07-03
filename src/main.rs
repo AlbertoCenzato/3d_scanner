@@ -1,9 +1,12 @@
 mod calibration;
 mod cameras;
+mod logging;
 
 use calibration::{load_calibration, CameraCalib, LaserCalib};
 use cameras::get_camera;
 use cameras::CameraType;
+
+use logging::{Logger, RerunLogger};
 
 use anyhow::Result;
 use clap::Parser;
@@ -24,7 +27,6 @@ struct Args {
     rerun_port: u16,
 }
 
-const AXIS_SIZE: f32 = 0.1_f32;
 const LOW_THRESHOLD: u8 = 30;
 
 fn main() -> Result<()> {
@@ -33,9 +35,8 @@ fn main() -> Result<()> {
 
     let reurn_server_address =
         std::net::SocketAddr::new(std::net::IpAddr::V4(args.rerun_ip), args.rerun_port);
-    let rec = rerun::RecordingStreamBuilder::new("3d_scanner")
-        .connect_opts(reurn_server_address, rerun::default_flush_timeout())?;
-    log_world_entities(&rec, &calib.camera)?;
+    let rec = RerunLogger::new("3d_scanner", reurn_server_address)?;
+    rec.log_camera("world/camera", &calib.camera)?;
 
     println!("Processing files from {}", args.image_dir.display());
 
@@ -71,8 +72,7 @@ fn main() -> Result<()> {
             .collect();
 
         let img = DynamicImage::ImageLuma8(luma_img);
-        let tensor = rerun::TensorData::from_dynamic_image(img)?;
-        rec.log("world/camera/image", &rerun::Image::new(tensor))?;
+        rec.log_image("world/camera/image", img)?;
 
         let mut left_laser_points = Vec::<glam::Vec3>::new();
         let mut right_laser_points = Vec::<glam::Vec3>::new();
@@ -104,15 +104,8 @@ fn main() -> Result<()> {
             .map(|p| img_plane_2_world.transform_point3(p))
             .collect();
 
-        rec.log(
-            "world/points_3d_cam",
-            &rerun::Points3D::new(points_3d_world.clone()).with_colors([0, 0, 255]),
-        )?;
-
-        rec.log(
-            "world/points_3d_world",
-            &rerun::Points3D::new(point_cloud.clone()),
-        )?;
+        rec.log_points("world/points_3d_cam", &points_3d_world)?;
+        rec.log_points("world/points_3d_world", &point_cloud)?;
 
         point_cloud.append(&mut points_3d_world);
         i = i + 1;
@@ -120,60 +113,6 @@ fn main() -> Result<()> {
     }
 
     Ok(())
-}
-
-fn log_world_entities(
-    rec: &rerun::RecordingStream,
-    camera_calib: &CameraCalib,
-) -> rerun::RecordingStreamResult<()> {
-    log_world_reference_system(rec)?;
-    log_camera_pose(rec, camera_calib)?;
-    Ok(())
-}
-
-fn log_camera_pose(
-    rec: &rerun::RecordingStream,
-    camera_calib: &CameraCalib,
-) -> rerun::RecordingStreamResult<()> {
-    let focal = camera_calib.intrinsics.focal_length_px();
-    rec.log_static(
-        "world/camera",
-        &rerun::Pinhole::from_focal_length_and_resolution(
-            [focal, focal],
-            [
-                camera_calib.intrinsics.width,
-                camera_calib.intrinsics.height,
-            ],
-        )
-        .with_camera_xyz(rerun::components::ViewCoordinates::DLB),
-    )?;
-
-    let extrinsics = camera_calib.extrinsics.as_affine();
-    let (_, rotation, translation) = extrinsics.to_scale_rotation_translation();
-    rec.log_static(
-        "world/camera",
-        &rerun::Transform3D::from_translation_rotation(translation, rotation),
-    )?;
-    Ok(())
-}
-
-fn make_axis() -> rerun::Arrows3D {
-    let camera_axis = vec![
-        AXIS_SIZE * glam::Vec3::X,
-        AXIS_SIZE * glam::Vec3::Y,
-        AXIS_SIZE * glam::Vec3::Z,
-    ];
-    let colors = vec![
-        rerun::Color::from_rgb(255, 0, 0),
-        rerun::Color::from_rgb(0, 255, 0),
-        rerun::Color::from_rgb(0, 0, 255),
-    ];
-    return rerun::Arrows3D::from_vectors(camera_axis).with_colors(colors);
-}
-
-fn log_world_reference_system(rec: &rerun::RecordingStream) -> rerun::RecordingStreamResult<()> {
-    let axis = make_axis();
-    return rec.log_static("world/axis", &axis);
 }
 
 fn detect_laser_points(image: &image::GrayImage) -> Vec<glam::Vec2> {
