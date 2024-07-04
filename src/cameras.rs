@@ -13,11 +13,11 @@ pub enum CameraType {
 
 pub fn get_camera(camera_type: CameraType) -> Result<Box<dyn GrayscaleCamera>, io::Error> {
     let camera = match camera_type {
-        CameraType::DiskLoader(path) => DiskLoaderCamera::from_directory(&path)?,
+        CameraType::DiskLoader(path) => Box::new(DiskLoaderCamera::from_directory(&path)?),
         #[cfg(feature = "camera")]
-        CameraType::RaspberryPi => raspberry::PiCamera::new(),
+        CameraType::RaspberryPi => Box::new(raspberry::PiCamera::new()),
     };
-    return Ok(Box::new(camera));
+    return Ok(camera);
 }
 
 pub struct DiskLoaderCamera {
@@ -59,6 +59,8 @@ impl GrayscaleCamera for DiskLoaderCamera {
 
 #[cfg(feature = "camera")]
 pub mod raspberry {
+    use super::*;
+    use libcamera::camera::{ActiveCamera, Camera};
     use libcamera::{camera_manager::CameraManager, logging::LoggingLevel, stream::StreamRole};
 
     fn test_camera() {
@@ -84,13 +86,22 @@ pub mod raspberry {
     }
 
     pub struct PiCamera {
-        camera: rscam::Camera,
+        camera_manager: CameraManager,
+        camera: Camera,
+        active_camera: ActiveCamera,
     }
 
     impl PiCamera {
         pub fn new() -> PiCamera {
-            let camera = rscam::new("/dev/video0").unwrap();
-            return PiCamera { camera };
+            let camera_manager = CameraManager::new()?;
+            camera_manager.log_set_level("Camera", LoggingLevel::Error);
+            let camera = camera_manager.cameras().get(0)?;
+            let active_camera = camera.acquire()?;
+            return PiCamera {
+                camera_manager,
+                camera,
+                active_camera,
+            };
         }
     }
 
