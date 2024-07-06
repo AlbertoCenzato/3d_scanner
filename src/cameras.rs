@@ -12,7 +12,7 @@ pub enum CameraType {
 }
 
 pub fn get_camera(camera_type: CameraType) -> Result<Box<dyn GrayscaleCamera>, io::Error> {
-    let camera = match camera_type {
+    let camera: Box<dyn GrayscaleCamera> = match camera_type {
         CameraType::DiskLoader(path) => Box::new(DiskLoaderCamera::from_directory(&path)?),
         #[cfg(feature = "camera")]
         CameraType::RaspberryPi => Box::new(raspberry::PiCamera::new()),
