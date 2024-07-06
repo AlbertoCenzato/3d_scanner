@@ -1,0 +1,24 @@
+{
+	"name": "raspberry-pi",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"options": ["--platform", "linux/arm/v7"]
+	},
+	"mounts": [],
+	"runArgs": [
+		"--platform",
+		"linux/arm/v7"
+	],
+	"customizations": {
+		"vscode": {
+			"settings": {},
+			"extensions": [
+				"jmfirth.vsc-space-block-jumper",
+				"serayuzgur.crates",
+				"tamasfe.even-better-toml",
+				"mhutchie.git-graph",
+				"rust-lang.rust-analyzer"
+			]
+		}
+	}
+}
