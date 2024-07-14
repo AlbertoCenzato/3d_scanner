@@ -17,9 +17,12 @@ use libcamera::{
     stream::StreamRole,
 };
 
+use drm_fourcc::DrmFourcc;
+
 // drm-fourcc does not have MJPEG type yet, construct it from raw fourcc identifier
-const PIXEL_FORMAT_MJPEG: PixelFormat =
-    PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
+const MJPEG: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
+
+const YUV420: PixelFormat = PixelFormat::new(DrmFourcc::Yuv420 as u32, 0);
 
 use logging::make_logger;
 
@@ -89,8 +92,11 @@ fn main() -> Result<()> {
     let mut alloc = FrameBufferAllocator::new(&cam);
 
     // Allocate frame buffers for the stream
-    let cfg = cfgs.get(0).unwrap();
+    let mut cfg = cfgs.get_mut(0).unwrap();
+    cfg.set_pixel_format(YUV420);
     let pixel_format = cfg.get_pixel_format();
+    println!("Pixel format: {:?}", pixel_format);
+
     let frame_size = cfg.get_size();
     let stream = cfg.stream().unwrap();
     let buffers = alloc.alloc(&stream).unwrap();

@@ -2809,6 +2809,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "drm-fourcc",
  "glam",
  "image",
  "libcamera",

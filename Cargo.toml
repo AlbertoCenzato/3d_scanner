@@ -17,3 +17,4 @@ serde_json = "1.0.80"
 anyhow = "1.0.44"
 rerun = { version = "0.16.1", features = ["sdk", "glam", "image"], default-features = false, optional = true}
 libcamera = { version = "0.2.3", optional=true }
+drm-fourcc = "2.2.0"
