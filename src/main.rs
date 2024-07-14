@@ -4,7 +4,7 @@ mod logging;
 
 use calibration::{load_calibration, LaserCalib};
 
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
 use libcamera::{
     camera::CameraConfigurationStatus,
@@ -70,13 +70,8 @@ fn main() -> Result<()> {
 
     // This will generate default configuration for each specified role
     let mut cfgs = cam
-        .generate_configuration(&[StreamRole::ViewFinder])
+        .generate_configuration(&[StreamRole::StillCapture])
         .unwrap();
-
-    // Use MJPEG format so we can write resulting frame directly into jpeg file
-    cfgs.get_mut(0)
-        .unwrap()
-        .set_pixel_format(PIXEL_FORMAT_MJPEG);
 
     println!("Generated config: {:#?}", cfgs);
 
@@ -88,13 +83,6 @@ fn main() -> Result<()> {
         CameraConfigurationStatus::Invalid => panic!("Error validating camera configuration"),
     }
 
-    // Ensure that pixel format was unchanged
-    assert_eq!(
-        cfgs.get(0).unwrap().get_pixel_format(),
-        PIXEL_FORMAT_MJPEG,
-        "MJPEG is not supported by the camera"
-    );
-
     cam.configure(&mut cfgs)
         .expect("Unable to configure camera");
 
@@ -102,6 +90,8 @@ fn main() -> Result<()> {
 
     // Allocate frame buffers for the stream
     let cfg = cfgs.get(0).unwrap();
+    let pixel_format = cfg.get_pixel_format();
+    let frame_size = cfg.get_size();
     let stream = cfg.stream().unwrap();
     let buffers = alloc.alloc(&stream).unwrap();
     println!("Allocated {} buffers", buffers.len());
@@ -147,7 +137,7 @@ fn main() -> Result<()> {
 
     // MJPEG format has only one data plane containing encoded jpeg data with all the headers
     let planes = framebuffer.data();
-    let jpeg_data = planes.get(0).unwrap();
+    let image_data = planes.get(0).unwrap();
     // Actual JPEG-encoded data will be smalled than framebuffer size, its length can be obtained from metadata.
     let jpeg_len = framebuffer
         .metadata()
@@ -157,9 +147,20 @@ fn main() -> Result<()> {
         .unwrap()
         .bytes_used as usize;
 
-    let output_file = args.output_dir.join("test.jpg");
-    std::fs::write(&output_file, &jpeg_data[..jpeg_len]).unwrap();
-    println!("Written {} bytes to {}", jpeg_len, output_file.display());
+    let img_buffer = image::ImageBuffer::<image::Luma<u8>, &[u8]>::from_raw(
+        frame_size.width,
+        frame_size.height,
+        &image_data[..jpeg_len],
+    )
+    .expect("Failed to create image from raw buffer");
+
+    let image_path = PathBuf::from_str("./image.bmp").unwrap();
+    let save_result = img_buffer.save_with_format(&image_path, image::ImageFormat::Bmp);
+    if save_result.is_err() {
+        println!("Failed to save image to {}", image_path.display());
+    } else {
+        println!("Image saved to {}", image_path.display());
+    }
 
     // --------------------------------------
     /*
