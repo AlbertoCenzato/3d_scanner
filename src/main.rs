@@ -1,19 +1,22 @@
 mod calibration;
 mod cameras;
 mod logging;
+mod motor;
 
 use calibration::{load_calibration, LaserCalib};
+use motor::StepperMotor;
 
-use std::{str::FromStr, time::Duration};
+use std::{f32::consts::PI, str::FromStr, time::Duration};
 
 use libcamera::{
-    camera::CameraConfigurationStatus,
+    camera::{ActiveCamera, CameraConfigurationStatus},
     camera_manager::CameraManager,
     framebuffer::AsFrameBuffer,
     framebuffer_allocator::{FrameBuffer, FrameBufferAllocator},
     framebuffer_map::MemoryMappedFrameBuffer,
     pixel_format::PixelFormat,
     properties,
+    request::Request,
     stream::StreamRole,
 };
 
@@ -126,120 +129,83 @@ fn main() -> Result<()> {
 
     cam.start(None).unwrap();
 
-    // Multiple requests can be queued at a time, but for this example we just want a single frame.
-    cam.queue_request(reqs.pop().unwrap()).unwrap();
+    let mut motor = StepperMotor::new()?;
 
-    println!("Waiting for camera request execution");
-    let req = rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("Camera request failed");
+    let mut point_cloud = Vec::<glam::Vec3>::new();
+    let angle_per_step = 5_f32.to_radians();
+    let steps = (2_f32 * PI / angle_per_step).ceil() as i32;
+    for i in 0..steps {
+        rec.set_time_sequence("timeline", i as i64);
+        motor.step(1);
 
-    println!("Camera request {:?} completed!", req);
-    println!("Metadata: {:#?}", req.metadata());
+        let image = get_image(&cam, &stream, &frame_size, &mut reqs, &rx).unwrap();
 
-    // Get framebuffer for our stream
-    let framebuffer: &MemoryMappedFrameBuffer<FrameBuffer> = req.buffer(&stream).unwrap();
-    println!("FrameBuffer metadata: {:#?}", framebuffer.metadata());
+        let res = rec.log_image(
+            "world/image",
+            image::DynamicImage::ImageLuma8(image.clone()),
+        );
+        if let Err(e) = res {
+            println!("Failed to log image to logger: {e}");
+        }
 
-    // MJPEG format has only one data plane containing encoded jpeg data with all the headers
-    let planes = framebuffer.data();
-    let image_data = planes.get(0).unwrap();
-    // Actual JPEG-encoded data will be smalled than framebuffer size, its length can be obtained from metadata.
-    let jpeg_len = framebuffer
-        .metadata()
-        .unwrap()
-        .planes()
-        .get(0)
-        .unwrap()
-        .bytes_used as usize;
+        let transform = glam::Affine3A::from_rotation_z(angle_per_step);
+        for point in &mut point_cloud {
+            *point = transform.transform_point3(*point);
+        }
 
-    let img_buffer = image::ImageBuffer::<image::Luma<u8>, &[u8]>::from_raw(
-        frame_size.width,
-        frame_size.height,
-        &image_data[..jpeg_len],
-    )
-    .expect("Failed to create image from raw buffer");
+        let mut new_points = triangulate(&image, &calib);
+        rec.log_points("world/points_3d_cam", &new_points)?;
+        point_cloud.append(&mut new_points);
+        rec.log_points("world/points_3d_world", &point_cloud)?;
+    }
+    Ok(())
+}
 
-    let image_path = PathBuf::from_str("./image.bmp").unwrap();
-    let save_result = img_buffer.save_with_format(&image_path, image::ImageFormat::Bmp);
-    if save_result.is_err() {
-        println!("Failed to save image to {}", image_path.display());
-    } else {
-        println!("Image saved to {}", image_path.display());
+fn triangulate(image: &image::GrayImage, calib: &calibration::Calibration) -> Vec<glam::Vec3> {
+    println!("Image info: dimensions {:?}", image.dimensions(),);
+
+    let width = image.width() as f32;
+    let height = image.height() as f32;
+    let img_2_img_center =
+        glam::Affine3A::from_translation(-glam::vec3(width / 2_f32, height / 2_f32, 0_f32));
+
+    let focal_length_px = calib.camera.intrinsics.focal_length_px();
+    let points: Vec<glam::Vec3> = detect_laser_points(&image)
+        .iter()
+        .map(|p| glam::vec3(p.x, p.y, focal_length_px))
+        .map(|p| img_2_img_center.transform_point3(p))
+        .collect();
+
+    let mut left_laser_points = Vec::<glam::Vec3>::new();
+    let mut right_laser_points = Vec::<glam::Vec3>::new();
+    for point in points {
+        if point.x >= 0_f32 {
+            right_laser_points.push(point);
+        } else {
+            left_laser_points.push(point);
+        }
     }
 
-    // --------------------------------------
-    /*
-       let img_plane_2_world = calib.camera.extrinsics.as_affine() * calib.camera.img_plane_2_cam();
+    let meters_per_px = calib.camera.intrinsics.meters_per_px;
+    let mut right_projected_points: Vec<glam::Vec3> = right_laser_points
+        .iter()
+        .map(|p| project_on_laser_plane(*p, &calib.right_laser, meters_per_px))
+        .collect();
+    let mut left_projected_points: Vec<glam::Vec3> = left_laser_points
+        .iter()
+        .map(|p| project_on_laser_plane(*p, &calib.left_laser, meters_per_px))
+        .collect();
 
-       let mut point_cloud = Vec::<glam::Vec3>::new();
-       let mut i = 0;
-       let mut image = camera.get_image();
-       while let Some(luma_img) = image {
-           rec.set_time_sequence("timeline", i as i64);
+    let mut points = Vec::<glam::Vec3>::new();
+    points.append(&mut right_projected_points);
+    points.append(&mut left_projected_points);
 
-           let angle = (360.0 / 100.0 as f32).to_radians();
-           let transform = glam::Affine3A::from_rotation_z(angle);
-           for point in &mut point_cloud {
-               *point = transform.transform_point3(*point);
-           }
-
-           println!("Image info: dimensions {:?}", luma_img.dimensions(),);
-
-           let width = luma_img.width() as f32;
-           let height = luma_img.height() as f32;
-           let img_2_img_center =
-               glam::Affine3A::from_translation(-glam::vec3(width / 2_f32, height / 2_f32, 0_f32));
-
-           let focal_length_px = calib.camera.intrinsics.focal_length_px();
-           let points: Vec<glam::Vec3> = detect_laser_points(&luma_img)
-               .iter()
-               .map(|p| glam::vec3(p.x, p.y, focal_length_px))
-               .map(|p| img_2_img_center.transform_point3(p))
-               .collect();
-
-           let img = DynamicImage::ImageLuma8(luma_img);
-           rec.log_image("world/camera/image", img)?;
-
-           let mut left_laser_points = Vec::<glam::Vec3>::new();
-           let mut right_laser_points = Vec::<glam::Vec3>::new();
-           for point in points {
-               if point.x >= 0_f32 {
-                   right_laser_points.push(point);
-               } else {
-                   left_laser_points.push(point);
-               }
-           }
-
-           let meters_per_px = calib.camera.intrinsics.meters_per_px;
-           let mut right_projected_points: Vec<glam::Vec3> = right_laser_points
-               .iter()
-               .map(|p| project_on_laser_plane(*p, &calib.right_laser, meters_per_px))
-               .collect();
-           let mut left_projected_points: Vec<glam::Vec3> = left_laser_points
-               .iter()
-               .map(|p| project_on_laser_plane(*p, &calib.left_laser, meters_per_px))
-               .collect();
-
-           let mut points = Vec::<glam::Vec3>::new();
-           points.append(&mut right_projected_points);
-           points.append(&mut left_projected_points);
-
-           let mut points_3d_world: Vec<glam::Vec3> = points
-               .iter()
-               .map(|p| meters_per_px * (*p))
-               .map(|p| img_plane_2_world.transform_point3(p))
-               .collect();
-
-           rec.log_points("world/points_3d_cam", &points_3d_world)?;
-           rec.log_points("world/points_3d_world", &point_cloud)?;
-
-           point_cloud.append(&mut points_3d_world);
-           i = i + 1;
-           image = camera.get_image();
-       }
-    */
-    Ok(())
+    let img_plane_2_world = calib.camera.extrinsics.as_affine() * calib.camera.img_plane_2_cam();
+    return points
+        .iter()
+        .map(|p| meters_per_px * (*p))
+        .map(|p| img_plane_2_world.transform_point3(p))
+        .collect();
 }
 
 fn detect_laser_points(image: &image::GrayImage) -> Vec<glam::Vec2> {
@@ -274,4 +240,45 @@ fn project_on_laser_plane(
     let laser_baseline_px = laser_calib.baseline / meters_per_px;
     let denominator = p.z * laser_calib.angle_rad().tan() + p.x;
     p * (laser_baseline_px / denominator)
+}
+
+fn get_image(
+    camera: &ActiveCamera,
+    stream: &libcamera::stream::Stream,
+    frame_size: &libcamera::geometry::Size,
+    requests: &mut Vec<Request>,
+    rx: &std::sync::mpsc::Receiver<Request>,
+) -> Option<image::GrayImage> {
+    camera.queue_request(requests.pop().unwrap()).unwrap();
+
+    println!("Waiting for camera request execution");
+    let req = rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("Camera request failed");
+    println!("Camera request {:?} completed!", req);
+    println!("Metadata: {:#?}", req.metadata());
+    // Get framebuffer for our stream
+    let framebuffer: &MemoryMappedFrameBuffer<FrameBuffer> = req.buffer(&stream).unwrap();
+    println!("FrameBuffer metadata: {:#?}", framebuffer.metadata());
+
+    // grayscale image encoded in first image plane
+    let planes = framebuffer.data();
+    let image_data = planes.get(0).unwrap();
+    let data_length = framebuffer
+        .metadata()
+        .unwrap()
+        .planes()
+        .get(0)
+        .unwrap()
+        .bytes_used as usize;
+
+    // copy buffer data to Vec<u8>
+    let buffer_data = image_data[..data_length].to_vec();
+
+    // recycle request
+    requests.push(req);
+
+    let image = image::GrayImage::from_raw(frame_size.width, frame_size.height, buffer_data)
+        .expect("Failed to create image from raw buffer");
+    return Some(image);
 }
