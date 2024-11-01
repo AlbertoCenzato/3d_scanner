@@ -20,6 +20,7 @@ jobs:
         path: |
           ~/.cargo
           target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         
     - name: Build
       run: cargo build --verbose --no-default-features
