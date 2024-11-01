@@ -6,7 +6,7 @@ mod motor;
 use calibration::{load_calibration, LaserCalib};
 use motor::StepperMotor;
 
-use std::{f32::consts::PI, str::FromStr, time::Duration};
+use std::{f32::consts::PI, time::Duration};
 
 use libcamera::{
     camera::{ActiveCamera, CameraConfigurationStatus},
@@ -23,7 +23,7 @@ use libcamera::{
 use drm_fourcc::DrmFourcc;
 
 // drm-fourcc does not have MJPEG type yet, construct it from raw fourcc identifier
-const MJPEG: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
+//const MJPEG: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
 
 const YUV420: PixelFormat = PixelFormat::new(DrmFourcc::Yuv420 as u32, 0);
 
@@ -32,7 +32,6 @@ use logging::make_logger;
 use anyhow::Result;
 use clap::Parser;
 use image;
-use image::DynamicImage;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -60,19 +59,25 @@ fn main() -> Result<()> {
 
     println!("Processing files from {}", args.image_dir.display());
 
-    //let camera_type = CameraType::DiskLoader(args.image_dir);
-    //let mut camera = get_camera(camera_type)?;
+    let mut motor = StepperMotor::new()?;
+    let _point_cloud = acquire_from_camera(&rec, &calib, &mut motor)?;
 
+    Ok(())
+}
+
+fn acquire_from_camera(
+    rec: &Box<dyn logging::Logger>,
+    calib: &calibration::Calibration,
+    motor: &mut StepperMotor,
+) -> Result<Vec<glam::Vec3>> {
     let mngr = CameraManager::new()?;
     let cameras = mngr.cameras();
     let cam = cameras.get(0).expect("No cameras found");
 
-    println!(
-        "Using camera: {}",
-        *cam.properties().get::<properties::Model>().unwrap()
-    );
+    let camera_model = cam.properties().get::<properties::Model>()?;
+    println!("Using camera: {}", *camera_model);
 
-    let mut cam = cam.acquire().expect("Unable to acquire camera");
+    let mut cam = cam.acquire()?;
 
     // This will generate default configuration for each specified role
     let mut cfgs = cam
@@ -89,8 +94,7 @@ fn main() -> Result<()> {
         CameraConfigurationStatus::Invalid => panic!("Error validating camera configuration"),
     }
 
-    cam.configure(&mut cfgs)
-        .expect("Unable to configure camera");
+    cam.configure(&mut cfgs)?;
 
     let mut alloc = FrameBufferAllocator::new(&cam);
 
@@ -129,35 +133,53 @@ fn main() -> Result<()> {
 
     cam.start(None).unwrap();
 
-    let mut motor = StepperMotor::new()?;
-
     let mut point_cloud = Vec::<glam::Vec3>::new();
     let angle_per_step = 5_f32.to_radians();
     let steps = (2_f32 * PI / angle_per_step).ceil() as i32;
     for i in 0..steps {
-        rec.set_time_sequence("timeline", i as i64);
-        motor.step(1);
-
         let image = get_image(&cam, &stream, &frame_size, &mut reqs, &rx).unwrap();
-
-        let res = rec.log_image(
-            "world/image",
-            image::DynamicImage::ImageLuma8(image.clone()),
-        );
-        if let Err(e) = res {
-            println!("Failed to log image to logger: {e}");
-        }
-
-        let transform = glam::Affine3A::from_rotation_z(angle_per_step);
-        for point in &mut point_cloud {
-            *point = transform.transform_point3(*point);
-        }
-
-        let mut new_points = triangulate(&image, &calib);
-        rec.log_points("world/points_3d_cam", &new_points)?;
-        point_cloud.append(&mut new_points);
-        rec.log_points("world/points_3d_world", &point_cloud)?;
+        acquisition_step(
+            &image,
+            i as i64,
+            &rec,
+            angle_per_step,
+            &calib,
+            motor,
+            &mut point_cloud,
+        )?;
     }
+
+    Ok(point_cloud)
+}
+
+fn acquisition_step(
+    image: &image::GrayImage,
+    i: i64,
+    rec: &Box<dyn logging::Logger>,
+    angle_per_step: f32,
+    calib: &calibration::Calibration,
+    motor: &mut StepperMotor,
+    point_cloud: &mut Vec<glam::Vec3>,
+) -> Result<()> {
+    rec.set_time_sequence("timeline", i as i64);
+    motor.step(1);
+    let res = rec.log_image(
+        "world/image",
+        image::DynamicImage::ImageLuma8(image.clone()),
+    );
+    if let Err(e) = res {
+        println!("Failed to log image to logger: {e}");
+    }
+
+    let transform = glam::Affine3A::from_rotation_z(angle_per_step);
+    for point in &mut *point_cloud {
+        *point = transform.transform_point3(*point);
+    }
+
+    let mut new_points = triangulate(&image, &calib);
+    rec.log_points("world/points_3d_cam", &new_points)?;
+    point_cloud.append(&mut new_points);
+    rec.log_points("world/points_3d_world", &point_cloud)?;
     Ok(())
 }
 
