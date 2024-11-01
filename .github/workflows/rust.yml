@@ -22,7 +22,8 @@ jobs:
           target
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         
-    - name: Build
-      run: cargo build --verbose --no-default-features
     - name: Run tests
       run: cargo test --verbose --no-default-features
+
+    - name: Build with Rerun support
+      run: cargo test --verbose --no-default-features --features rerun
