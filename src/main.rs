@@ -4,7 +4,7 @@ mod logging;
 mod motor;
 
 use calibration::{load_calibration, LaserCalib};
-use motor::StepperMotor;
+use motor::{make_stepper_motor, StepperMotor};
 
 use std::{f32::consts::PI, time::Duration};
 
@@ -30,45 +30,75 @@ const YUV420: PixelFormat = PixelFormat::new(DrmFourcc::Yuv420 as u32, 0);
 use logging::make_logger;
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use image;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-struct Args {
-    image_dir: PathBuf,
-    output_dir: PathBuf,
-    #[clap(default_value = "calibration.json")]
-    calibration: PathBuf,
-    #[clap(default_value = "127.0.0.1")]
-    rerun_ip: std::net::Ipv4Addr,
-    #[clap(default_value = "9876")]
-    rerun_port: u16,
+struct Cli {
+    #[clap(subcommand)]
+    cmd: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    Run {
+        image_dir: PathBuf,
+        output_dir: PathBuf,
+        #[clap(default_value = "calibration.json")]
+        calibration: PathBuf,
+        #[clap(default_value = "127.0.0.1")]
+        rerun_ip: std::net::Ipv4Addr,
+        #[clap(default_value = "9876")]
+        rerun_port: u16,
+    },
+    Motor {
+        degrees: f32,
+    },
 }
 
 const LOW_THRESHOLD: u8 = 30;
 
 fn main() -> Result<()> {
-    let args = Args::parse();
-    let calib = load_calibration(&args.calibration)?;
+    let args = Cli::parse();
 
-    let reurn_server_address =
-        std::net::SocketAddr::new(std::net::IpAddr::V4(args.rerun_ip), args.rerun_port);
-    let rec = make_logger("3d_scanner", reurn_server_address)?;
-    rec.log_camera("world/camera", &calib.camera)?;
+    let mut motor = make_stepper_motor()?;
+    println!("Initialized {}", motor.name());
 
-    println!("Processing files from {}", args.image_dir.display());
+    match args.cmd {
+        Commands::Run {
+            image_dir,
+            output_dir,
+            calibration,
+            rerun_ip,
+            rerun_port,
+        } => {
+            let calib = load_calibration(&calibration)?;
 
-    let mut motor = StepperMotor::new()?;
-    let _point_cloud = acquire_from_camera(&rec, &calib, &mut motor)?;
+            let reurn_server_address =
+                std::net::SocketAddr::new(std::net::IpAddr::V4(rerun_ip), rerun_port);
+            let rec = make_logger("3d_scanner", reurn_server_address)?;
+            rec.log_camera("world/camera", &calib.camera)?;
+
+            println!("Processing files from {}", image_dir.display());
+
+            let _point_cloud = acquire_from_camera(rec.as_ref(), &calib, motor.as_mut())?;
+        }
+        Commands::Motor { degrees } => {
+            let steps_per_rev = motor.steps_per_rev();
+            let steps = (degrees / 360_f32 * steps_per_rev) as u32;
+            println!("Moving motor {} degrees, {} steps", degrees, steps);
+            motor.step(steps);
+        }
+    }
 
     Ok(())
 }
 
 fn acquire_from_camera(
-    rec: &Box<dyn logging::Logger>,
+    rec: &dyn logging::Logger,
     calib: &calibration::Calibration,
-    motor: &mut StepperMotor,
+    motor: &mut dyn StepperMotor,
 ) -> Result<Vec<glam::Vec3>> {
     let mngr = CameraManager::new()?;
     let cameras = mngr.cameras();
@@ -141,7 +171,7 @@ fn acquire_from_camera(
         acquisition_step(
             &image,
             i as i64,
-            &rec,
+            rec,
             angle_per_step,
             &calib,
             motor,
@@ -155,10 +185,10 @@ fn acquire_from_camera(
 fn acquisition_step(
     image: &image::GrayImage,
     i: i64,
-    rec: &Box<dyn logging::Logger>,
+    rec: &dyn logging::Logger,
     angle_per_step: f32,
     calib: &calibration::Calibration,
-    motor: &mut StepperMotor,
+    motor: &mut dyn StepperMotor,
     point_cloud: &mut Vec<glam::Vec3>,
 ) -> Result<()> {
     rec.set_time_sequence("timeline", i as i64);
