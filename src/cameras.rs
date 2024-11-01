@@ -3,9 +3,8 @@ use crate::img_processing;
 use crate::logging;
 use crate::motor;
 use anyhow::Result;
-use std::cfg;
+use std::f32::consts::PI;
 use std::path::{Path, PathBuf};
-use std::{f32::consts::PI, time::Duration};
 use std::{io, vec::IntoIter};
 
 pub enum CameraType {
@@ -107,6 +106,7 @@ pub mod real_camera {
         request::Request,
         stream::StreamRole,
     };
+    use std::time::Duration;
 
     // drm-fourcc does not have MJPEG type yet, construct it from raw fourcc identifier
     //const MJPEG: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
