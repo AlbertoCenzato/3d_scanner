@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["camera"]
-camera = ["dep:libcamera"]
+default = ["camera", "motor"]
+camera = ["dep:libcamera", "dep:drm-fourcc"]
+motor = ["dep:rppal"]
 rerun = ["dep:rerun"]
 
 [dependencies]
@@ -17,5 +18,5 @@ serde_json = "1.0.80"
 anyhow = "1.0.44"
 rerun = { version = "0.16.1", features = ["sdk", "glam", "image"], default-features = false, optional = true}
 libcamera = { version = "0.2.3", optional=true }
-drm-fourcc = "2.2.0"
-rppal = "0.19.0"
+drm-fourcc = { version = "2.2.0", optional=true }
+rppal = { version = "0.19.0", optional=true}
