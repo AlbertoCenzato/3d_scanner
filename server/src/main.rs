@@ -7,6 +7,7 @@ mod motor;
 use calibration::load_calibration;
 use logging::make_logger;
 use motor::make_stepper_motor;
+use msg;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -81,6 +82,8 @@ fn main() -> Result<()> {
             let server = Server::bind(connection_string)?;
             println!("WebSocket server listening on port {}", port);
 
+            let mut motor_speed = 0_f32;
+            let mut laser_1 = false;
             for request in server.filter_map(Result::ok) {
                 if let Ok(client) = request.accept() {
                     let peer_address = client.peer_addr()?;
@@ -109,6 +112,26 @@ fn main() -> Result<()> {
                             }
                             websocket::OwnedMessage::Text(text) => {
                                 println!("Text message received: {}", text);
+                                let message: msg::command::Command = serde_json::from_str(&text)?;
+                                match message {
+                                    msg::command::Command::Status => {
+                                        let response = msg::response::Response::Status(
+                                            msg::response::Status {
+                                                lasers: msg::response::LasersData {
+                                                    laser_1: laser_1,
+                                                    laser_2: false,
+                                                },
+                                                motor_speed: motor_speed,
+                                            },
+                                        );
+                                        let response = serde_json::to_string(&response)?;
+                                        let message = websocket::Message::text(response);
+                                        sender.send_message(&message).unwrap();
+
+                                        motor_speed += 0.1;
+                                        laser_1 = !laser_1;
+                                    }
+                                }
                             }
                             websocket::OwnedMessage::Binary(_) => {
                                 println!("Binary message received, not supported");

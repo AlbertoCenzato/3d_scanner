@@ -1474,22 +1474,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "eframe_template"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "eframe",
- "egui",
- "env_logger",
- "log 0.4.22",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "egui"
 version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2694,6 +2678,14 @@ checksum = "e2d80299ef12ff69b16a84bb182e3b9df68b5a91574d3d4fa6e41b65deec4df1"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "msg"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
 ]
 
 [[package]]
@@ -4339,11 +4331,29 @@ dependencies = [
  "glam",
  "image 0.24.9",
  "libcamera",
+ "msg",
  "rerun",
  "rppal",
  "serde",
  "serde_json",
  "websocket",
+]
+
+[[package]]
+name = "scanner_ui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "eframe",
+ "egui",
+ "env_logger",
+ "log 0.4.22",
+ "msg",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
