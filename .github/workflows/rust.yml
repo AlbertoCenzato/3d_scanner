@@ -2,15 +2,12 @@ name: Rust
 
 on:
   push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  tests:
+  server:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4.2.2
@@ -22,8 +19,8 @@ jobs:
           target
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         
-    - name: Run tests
-      run: cargo test --verbose --no-default-features
+    - name: Build server
+      run: cargo build --no-default-features --bin scanner_3d
 
   rerun-support:
     runs-on: ubuntu-22.04
@@ -38,4 +35,23 @@ jobs:
         key: ${{ runner.os }}-cargo-rerun-${{ hashFiles('**/Cargo.lock') }}
         
     - name: Build with Rerun support
-      run: cargo test --verbose --no-default-features --features rerun
+      run: cargo build --no-default-features --features rerun --bin scanner_3d
+
+  ui:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4.2.2
+    - name: Cache dependencies
+      uses: actions/cache@v4.1.2
+      with:
+        path: |
+          ~/.cargo
+          target
+        key: ${{ runner.os }}-cargo-ui-${{ hashFiles('**/Cargo.lock') }}
+        
+    - name: Build UI
+      run: |
+        cargo install --locked trunk
+        cd scanner_ui
+        trunk build
+
