@@ -57,7 +57,8 @@ pub mod rerun {
         }
 
         fn log_image(&self, id: &str, image: DynamicImage) -> Result<()> {
-            let tensor = rerun::TensorData::from_dynamic_image(image)?;
+            let resized_image = image.resize(640, 480, image::imageops::FilterType::Nearest);
+            let tensor = rerun::TensorData::from_dynamic_image(resized_image)?;
             let result = self.rec.log(id, &rerun::Image::new(tensor));
             return Ok(result?);
         }

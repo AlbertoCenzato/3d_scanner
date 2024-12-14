@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["camera", "motor"]
+default = ["camera", "motor", "rerun"]
 camera = ["dep:libcamera", "dep:drm-fourcc"]
 motor = ["dep:rppal"]
 rerun = ["dep:rerun"]
