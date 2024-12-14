@@ -241,6 +241,7 @@ pub mod real_camera {
         let buffer_data = image_data[..data_length].to_vec();
 
         // recycle request
+req.reuse(ReuseFlag::REUSE_BUFFERS);
         requests.push(req);
 
         let image = image::GrayImage::from_raw(frame_size.width, frame_size.height, buffer_data)
