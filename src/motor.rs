@@ -48,21 +48,40 @@ pub mod real_motor {
         fn step(&mut self, steps: u32) {
             use rppal::gpio::Level;
 
-            const STEP_SEQUENCE: [[Level; 4]; 4] = [
-                [Level::High, Level::Low, Level::Low, Level::High],
-                [Level::High, Level::High, Level::Low, Level::Low],
-                [Level::Low, Level::High, Level::High, Level::Low],
-                [Level::Low, Level::Low, Level::High, Level::High],
+            const SINGLE_PHASE_STEPPING: [[Level; 4]; 4] = [
+                [Level::High, Level::Low, Level::Low, Level::Low],
+                [Level::Low, Level::Low, Level::High, Level::Low],
+                [Level::Low, Level::High, Level::Low, Level::Low],
+                [Level::Low, Level::Low, Level::Low, Level::High],
             ];
 
-            for _ in 0..steps {
-                for step in STEP_SEQUENCE.iter() {
-                    self.pin1.write(step[0]);
-                    self.pin2.write(step[1]);
-                    self.pin3.write(step[2]);
-                    self.pin4.write(step[3]);
-                    std::thread::sleep(std::time::Duration::from_millis(2));
-                }
+            const DOUBLE_PHASE_STEPPING: [[Level; 4]; 4] = [
+                [Level::High, Level::Low, Level::High, Level::Low],
+                [Level::Low, Level::High, Level::High, Level::Low],
+                [Level::Low, Level::High, Level::Low, Level::High],
+                [Level::High, Level::Low, Level::Low, Level::High],
+            ];
+
+            // non funziona
+            const HALF_PHASE_STEPPING: [[Level; 4]; 8] = [
+                [Level::High, Level::Low, Level::High, Level::Low],
+                [Level::Low, Level::Low, Level::High, Level::Low],
+                [Level::Low, Level::High, Level::High, Level::Low],
+                [Level::Low, Level::High, Level::Low, Level::Low],
+                [Level::Low, Level::High, Level::Low, Level::High],
+                [Level::Low, Level::Low, Level::Low, Level::High],
+                [Level::High, Level::Low, Level::Low, Level::High],
+                [Level::High, Level::Low, Level::Low, Level::Low],
+            ];
+
+            for step in 0..steps {
+                let m = step % 4;
+                let sequence = DOUBLE_PHASE_STEPPING[m as usize];
+                self.pin1.write(sequence[0]);
+                self.pin2.write(sequence[1]);
+                self.pin3.write(sequence[2]);
+                self.pin4.write(sequence[3]);
+                std::thread::sleep(std::time::Duration::from_millis(1));
             }
         }
 
