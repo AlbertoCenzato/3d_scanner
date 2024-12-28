@@ -2,9 +2,11 @@
 	"name": "raspberry-pi",
 	"build": {
 		"dockerfile": "Dockerfile",
-		"options": ["--platform", "linux/arm/v7"]
+		"options": [
+			"--platform",
+			"linux/arm/v7"
+		]
 	},
-	"mounts": [],
 	"runArgs": [
 		"--platform",
 		"linux/arm/v7"
