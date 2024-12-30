@@ -1,5 +1,5 @@
 $imageName = "scanner"
-$platform = "linux/arm/v7"
+$platform = "linux/arm64"
 
 docker build -t $imageName --platform $platform "$PSScriptRoot/docker"
 
