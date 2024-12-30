@@ -11,6 +11,9 @@
 		"--platform",
 		"linux/arm/v7"
 	],
+	"mounts": [
+		"source=cargo-home,target=/root/.cargo,type=volume"
+	],
 	"customizations": {
 		"vscode": {
 			"settings": {},
