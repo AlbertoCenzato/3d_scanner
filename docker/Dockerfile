@@ -1,4 +1,4 @@
-FROM dtcooper/raspberrypi-os:bullseye
+FROM dtcooper/raspberrypi-os:bookworm
 
 # install rust
 RUN apt update && apt install -y curl && \
