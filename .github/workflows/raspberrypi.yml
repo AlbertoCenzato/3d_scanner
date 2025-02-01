@@ -10,7 +10,7 @@ jobs:
   server:
     runs-on: self-hosted
     container:
-      image: ghcr.io/albertocenzato/scanner-3d-dev:1.0
+      image: ghcr.io/albertocenzato/scanner-3d-dev:1.1
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PAT }}
@@ -20,7 +20,7 @@ jobs:
         token: '${{ secrets.GHCR_PAT }}'
 
     - name: Cache dependencies
-      uses: actions/cache@v4.1.2
+      uses: actions/cache@v4.2.0
       with:
         path: |
           ~/.cargo
