@@ -9,24 +9,10 @@ env:
 jobs:
   server:
     runs-on: self-hosted
-    container:
-      image: ghcr.io/albertocenzato/scanner-3d-dev:1.1
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GHCR_PAT }}
     steps:
-    - uses: actions/checkout@v4.2.2
-      with:
-        token: '${{ secrets.GHCR_PAT }}'
-
-    - name: Cache dependencies
-      uses: actions/cache@v4.2.0
-      with:
-        path: |
-          ~/.cargo
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        
-    - name: Build server
-      run: cargo build --bin scanner_3d
-
+    - name: Build
+      run: |
+        docker run --rm ghcr.io/albertocenzato/scanner-3d-dev:1.1 sh -c \
+           "git clone https://github.com/AlbertoCenzato/3d_scanner.git && \
+            cd 3d_scanner && \
+            cargo build --bin scanner_3d"
