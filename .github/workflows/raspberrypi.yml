@@ -1,0 +1,26 @@
+name: Raspberry Release
+
+on:
+  push:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  server:
+    runs-on: self-hosted
+    container:
+      image: ghcr.io/albertocenzato/scanner-3d-dev:1.0
+    steps:
+    - uses: actions/checkout@v4.2.2
+    - name: Cache dependencies
+      uses: actions/cache@v4.1.2
+      with:
+        path: |
+          ~/.cargo
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        
+    - name: Build server
+      run: cargo build --bin scanner_3d
+
