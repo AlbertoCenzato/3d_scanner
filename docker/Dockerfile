@@ -13,11 +13,3 @@ RUN apt install -y clang libcamera-dev pkg-config
 
 # install useful development tools
 RUN apt install -y git
-
-# install node20 to allow for github actions to run
-RUN apt install -y ca-certificates curl gnupg
-RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg
-RUN NODE_MAJOR=20 && \
-	echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
-	apt update && \
-	apt install -y nodejs
