@@ -28,5 +28,7 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         
     - name: Build server
-      run: cargo build --bin scanner_3d
+      run: |
+        rustup default stable
+        cargo build --bin scanner_3d
 
