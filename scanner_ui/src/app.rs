@@ -93,7 +93,13 @@ impl eframe::App for App {
                 Ok(msg) => match msg {
                     msg::response::Response::Status(status) => {
                         self.status = status;
-                    }
+                    },
+                    msg::response::Response::Ok => {
+                        log::info!("Received OK");
+                    },
+                    msg::response::Response::Error => {
+                        log::info!("Received Error");
+                    },
                 },
                 Err(_) => {}
             }
