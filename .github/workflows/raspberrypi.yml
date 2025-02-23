@@ -1,0 +1,33 @@
+name: Raspberry
+
+on:
+  push:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  server:
+    runs-on: self-hosted
+    container:
+      image: ghcr.io/albertocenzato/scanner-3d-dev:1.3
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PAT }}
+    steps:
+    - uses: actions/checkout@v4.2.2
+      with:
+        token: '${{ secrets.GHCR_PAT }}'
+
+    - name: Cache dependencies
+      uses: actions/cache@v4.2.0
+      with:
+        path: |
+          ~/.cargo
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        
+    - name: Build server
+      run: |
+        rustup default stable
+        cargo build --bin scanner_3d
