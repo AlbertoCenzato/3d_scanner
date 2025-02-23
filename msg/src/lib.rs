@@ -4,6 +4,7 @@ pub mod command {
     #[derive(serde::Deserialize, serde::Serialize)]
     pub enum Command {
         Status,
+        Replay,
     }
 }
 
@@ -12,6 +13,8 @@ pub mod response {
 
     #[derive(serde::Deserialize, serde::Serialize)]
     pub enum Response {
+        Ok,
+        Error,
         Status(Status),
     }
 

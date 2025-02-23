@@ -13,6 +13,7 @@ pub trait Logger {
     fn set_time_sequence(&self, id: &str, time: i64);
 }
 
+#[allow(unused)]
 pub fn make_logger(logger_name: &str, address: std::net::SocketAddr) -> Result<Box<dyn Logger>> {
     #[cfg(feature = "rerun")]
     let logger: Box<dyn Logger> = Box::new(rerun::RerunLogger::new(&logger_name, address)?);

@@ -1,8 +1,7 @@
 use crate::calibration;
-use crate::img_processing;
+use crate::imgproc;
 use crate::logging;
 use crate::motor;
-use anyhow::Error;
 use anyhow::Result;
 use std::f32::consts::PI;
 use std::path::{Path, PathBuf};
@@ -96,7 +95,7 @@ impl Camera for DiskCamera {
         let steps = (2_f32 * PI / angle_per_step).ceil() as i32;
         for i in 0..steps {
             let image = camera.get_image()?;
-            img_processing::process_image(
+            imgproc::process_image(
                 &image,
                 i as i64,
                 rec,
@@ -224,7 +223,7 @@ pub mod real_camera {
                 println!("Acquiring image {}", i);
                 let image = get_image(&cam, &stream, &frame_size, &mut reqs, &rx)?;
                 println!("Processing image {}", i);
-                img_processing::process_image(
+                imgproc::process_image(
                     &image,
                     i as i64,
                     rec,
