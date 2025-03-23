@@ -34,7 +34,7 @@ impl std::fmt::Display for CameraError {
 
 pub trait Camera {
     fn acquire_from_camera(
-        &self,
+        &mut self,
         rec: &dyn logging::Logger,
         calib: &calibration::Calibration,
         motor: &mut dyn motor::StepperMotor,
@@ -83,18 +83,16 @@ impl DiskCamera {
 
 impl Camera for DiskCamera {
     fn acquire_from_camera(
-        &self,
+        &mut self,
         rec: &dyn logging::Logger,
         calib: &calibration::Calibration,
         motor: &mut dyn motor::StepperMotor,
     ) -> Result<Vec<glam::Vec3>> {
-        let mut camera = DiskCamera::from_directory(Path::new("images"))?;
-
         let mut point_cloud = Vec::<glam::Vec3>::new();
         let angle_per_step = 5_f32.to_radians();
         let steps = (2_f32 * PI / angle_per_step).ceil() as i32;
         for i in 0..steps {
-            let image = camera.get_image()?;
+            let image = self.get_image()?;
             imgproc::process_image(
                 &image,
                 i as i64,
@@ -139,7 +137,7 @@ pub mod real_camera {
 
     impl Camera for PiCamera {
         fn acquire_from_camera(
-            &self,
+            &mut self,
             rec: &dyn logging::Logger,
             calib: &calibration::Calibration,
             motor: &mut dyn motor::StepperMotor,
