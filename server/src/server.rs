@@ -77,7 +77,7 @@ fn process_message(
     use msg::command::Command as cmd;
     match command {
         cmd::Status => status(scanner),
-        cmd::Replay(payload) => replay(scanner, &payload),
+        cmd::Replay => replay(scanner),
     }
 }
 
@@ -88,21 +88,7 @@ fn status(scanner: &scanner::Scanner) -> anyhow::Result<websocket::OwnedMessage>
     return Ok(message);
 }
 
-fn replay(
-    scanner: &mut scanner::Scanner,
-    payload: &msg::command::Replay,
-) -> anyhow::Result<websocket::OwnedMessage> {
-    // open a websocket connection (as client) to the scanner's client provided
-    // websocket server for point cloud data streaming
-    let url = websocket::url::Url::parse(&payload.data_stream_url)?;
-    let client = websocket::ClientBuilder::from_url(&url).connect_insecure()?;
-    let (_, mut sender) = client.split()?;
-
-    // send test message. Eventually this would be replaced with a scanner.start(sender) call
-    let data: [u8; 3] = [0, 1, 2];
-    let test_message = websocket::Message::binary(&data[..]);
-    let _ = sender.send_message(&test_message)?;
-
+fn replay(_scanner: &mut scanner::Scanner) -> anyhow::Result<websocket::OwnedMessage> {
     //let result = scanner.start(sender);
 
     let response = msg::response::Response::Ok;
