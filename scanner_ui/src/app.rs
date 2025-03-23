@@ -93,13 +93,13 @@ impl eframe::App for App {
                 Ok(msg) => match msg {
                     msg::response::Response::Status(status) => {
                         self.status = status;
-                    },
+                    }
                     msg::response::Response::Ok => {
                         log::info!("Received OK");
-                    },
+                    }
                     msg::response::Response::Error => {
                         log::info!("Received Error");
-                    },
+                    }
                 },
                 Err(_) => {}
             }
@@ -107,7 +107,6 @@ impl eframe::App for App {
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
-
             egui::menu::bar(ui, |ui| {
                 // NOTE: no File->Quit on web pages!
                 let is_web = cfg!(target_arch = "wasm32");
@@ -120,7 +119,7 @@ impl eframe::App for App {
                     ui.add_space(16.0);
                 }
 
-                egui::widgets::global_dark_light_mode_buttons(ui);
+                egui::widgets::global_theme_preference_buttons(ui);
             });
         });
 
@@ -151,12 +150,27 @@ impl eframe::App for App {
 
             ui.separator();
 
-            let status_requested = ui.button("Get Status");
-            if status_requested.clicked() {
+            let status_button = ui.button("Get Status");
+            if status_button.clicked() {
                 log::info!("Sending status request");
                 if let Some(conn) = &self.connection {
                     let command = msg::command::Command::Status;
-                    conn.send_message(command).unwrap();
+                    let res = conn.send_message(command);
+                    if let Err(e) = res {
+                        log::error!("Failed to send 'status' command: {}", e);
+                    }
+                }
+            }
+
+            let start_button = ui.button("Start");
+            if start_button.clicked() {
+                log::info!("Sending start request");
+                if let Some(conn) = &self.connection {
+                    let command = msg::command::Command::Replay;
+                    let res = conn.send_message(command);
+                    if let Err(e) = res {
+                        log::error!("Failed to send 'replay' command: {}", e);
+                    }
                 }
             }
 
