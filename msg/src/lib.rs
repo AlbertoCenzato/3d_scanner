@@ -4,7 +4,12 @@ pub mod command {
     #[derive(serde::Deserialize, serde::Serialize)]
     pub enum Command {
         Status,
-        Replay,
+        Replay(Replay),
+    }
+
+    #[derive(serde::Deserialize, serde::Serialize)]
+    pub struct Replay {
+        pub data_stream_url: String,
     }
 }
 
