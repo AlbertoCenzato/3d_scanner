@@ -10,6 +10,7 @@ use motor::make_stepper_motor;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use msg::DEFAULT_SERVER_PORT;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -21,10 +22,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Run {
-        port: u16,
         image_dir: PathBuf,
         #[clap(default_value = "calibration.json")]
         calibration: PathBuf,
+        #[clap(default_value = DEFAULT_SERVER_PORT)]
+        port: u16,
         #[clap(default_value = "127.0.0.1")]
         rerun_ip: std::net::Ipv4Addr,
         #[clap(default_value = "9876")]

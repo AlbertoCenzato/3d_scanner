@@ -1,31 +1,48 @@
-use std::net::{SocketAddr, TcpStream};
-
 use crate::scanner;
+use std::net::{SocketAddr, TcpStream};
 use websocket::sync::{Client, Server};
 
 pub fn run_websocket_server(port: u16, scanner: &mut scanner::Scanner) -> anyhow::Result<()> {
     println!("Starting WebSocket server...");
-    let connection_string = format!("0.0.0.0:{}", port);
+    let connection_string = format!("0.0.0.0:{port}");
     let server = Server::bind(connection_string)?;
-    println!(
-        "WebSocket server listening for incoming connections on port {}",
-        port
-    );
+    println!("WebSocket server listening for incoming connections on port {port}");
 
-    for request in server.filter_map(Result::ok) {
-        if let Ok(client) = request.accept() {
-            let peer_address = client.peer_addr()?;
-            println!("Opened connection with {}", peer_address);
-            let res = handle_connection(client, &peer_address, scanner);
-            match res {
-                Ok(_) => println!("Closed connection with {}", peer_address),
-                Err(e) => println!("Error: {} - connection with {} closed", e, peer_address),
+    for req in server {
+        println!("Incoming connection request");
+        match req {
+            Ok(request) => {
+                println!("Ok request");
+                match request.accept() {
+                    Ok(client) => {
+                        println!("Accepted connection request");
+                        let peer_address = client.peer_addr()?;
+                        println!("Opened connection with {}", peer_address);
+                        let res = handle_connection(client, &peer_address, scanner);
+                        match res {
+                            Ok(_) => println!("Closed connection with {peer_address}"),
+                            Err(e) => {
+                                println!("Error: {e} - connection with {peer_address} closed")
+                            }
+                        }
+
+                        println!(
+                            "WebSocket server listening for incoming connections on port {}",
+                            port
+                        );
+                    }
+                    Err((stream, e)) => {
+                        println!("Failed to accept connection: {e}");
+                        let addr = stream.peer_addr()?;
+                        println!("Failed to accept connection from {addr}: {e}");
+                    }
+                }
             }
-
-            println!(
-                "WebSocket server listening for incoming connections on port {}",
-                port
-            );
+            Err(invalid_connection) => {
+                let e = &invalid_connection.error;
+                println!("Failed to accept connection: {e}");
+                continue;
+            }
         }
     }
 

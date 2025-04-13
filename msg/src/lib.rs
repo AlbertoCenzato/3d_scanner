@@ -1,3 +1,5 @@
+pub static DEFAULT_SERVER_PORT: &str = "12345";
+
 pub mod command {
     use serde;
 
