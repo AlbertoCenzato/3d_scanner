@@ -43,8 +43,19 @@ trunk serve
 Now you can open a webpage at [http://localhost.:8080/index.html#dev](http://localhost.:8080/index.html#dev).
 If the page does not load hit `ctrl+F5`.
 
+### Debug WebSocket connection
+
+If the ui cannot connect to the server you can use `wscat` to test it manually
+
+```bash
+npm install -g wscat
+wscat -c ws://localhost:12345/
+```
+
+Now you can try to send messages as text
 
 ## Pinout references
+
 - [Raspberry Pi 5](https://www.hackatronic.com/wp-content/uploads/2024/03/Raspberry-Pi-5-Pinout--1210x642.jpg)
 - [TB6612 Motor Driver](https://learn.adafruit.com/adafruit-tb6612-h-bridge-dc-stepper-motor-driver-breakout/pinouts)
 - [Complete connection](https://learn.adafruit.com/adafruit-tb6612-h-bridge-dc-stepper-motor-driver-breakout/python-circuitpython)
