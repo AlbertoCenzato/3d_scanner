@@ -35,8 +35,9 @@ pub mod rerun {
 
     impl RerunLogger {
         pub fn new(name: &str, address: std::net::SocketAddr) -> Result<RerunLogger> {
+            let connection_timeout = Some(std::time::Duration::from_secs(1));
             let rec = rerun::RecordingStreamBuilder::new(name)
-                .connect_opts(address, rerun::default_flush_timeout())?;
+                .connect_opts(address, connection_timeout)?;
             log_world_reference_system(&rec)?;
             return Ok(RerunLogger { rec });
         }
