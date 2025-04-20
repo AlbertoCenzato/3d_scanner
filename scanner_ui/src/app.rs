@@ -1,5 +1,6 @@
 use msg;
 
+use egui_plot::{Plot, PlotPoints, Points};
 use glam::Vec3;
 use serde_json;
 use std::cell::RefCell;
@@ -255,12 +256,22 @@ impl eframe::App for App {
             ui.separator();
 
             ui.label("Point cloud:");
-            if self.points.len() > 0 {
-                ui.horizontal(|ui| {
-                    for point in &self.points {
-                        ui.label(format!("{point}"));
-                    }
-                });
+            if !self.points.is_empty() {
+                let plot_points: PlotPoints = self
+                    .points
+                    .iter()
+                    .map(|v| [v.x as f64, v.y as f64]) // project to XY plane
+                    .collect::<Vec<[f64; 2]>>()
+                    .into();
+
+                let points = Points::new("Points", plot_points).radius(2.0);
+
+                Plot::new("point_cloud_plot")
+                    .view_aspect(1.0)
+                    .show_axes([true, true])
+                    .show(ui, |plot_ui| {
+                        plot_ui.points(points);
+                    });
             } else {
                 ui.label("No points received yet");
             }
@@ -272,6 +283,8 @@ impl eframe::App for App {
                 egui::warn_if_debug_build(ui);
             });
         });
+
+        ctx.request_repaint(); // triggers a repaint as soon as possible
     }
 }
 
