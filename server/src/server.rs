@@ -1,5 +1,7 @@
 use crate::scanner;
+use msg::response::Response;
 use std::net::{SocketAddr, TcpStream};
+use std::sync::mpsc;
 use websocket::sync::{Client, Server};
 
 pub fn run_websocket_server(port: u16, scanner: &mut scanner::Scanner) -> anyhow::Result<()> {
@@ -55,26 +57,43 @@ fn handle_connection(
     scanner: &mut scanner::Scanner,
 ) -> anyhow::Result<()> {
     let (mut receiver, mut sender) = client.split()?;
+    let (send_msg, outgoing_msgs) = mpsc::channel::<Response>();
+
+    let sender_thread = std::thread::spawn(move || {
+        println!("Sender thread started");
+        for response in outgoing_msgs {
+            let owned_message =
+                serde_json::to_string(&response).map(|s| websocket::OwnedMessage::Text(s));
+
+            match owned_message {
+                Ok(message) => {
+                    println!("Sending message: {:?}", message);
+                    if let Err(e) = sender.send_message(&message) {
+                        println!("Failed to send message: {e}");
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to create message: {e}");
+                }
+            };
+        }
+        println!("Sender thread finished");
+    });
+
     for message in receiver.incoming_messages() {
         let message = message?;
         println!("Received message: {:?}", message);
         match message {
             websocket::OwnedMessage::Close(_) => {
-                let message = websocket::Message::close();
-                sender.send_message(&message).unwrap();
+                send_msg.send(Response::Close)?;
                 println!("Client {} disconnected", peer_address);
                 break;
-            }
-            websocket::OwnedMessage::Ping(ping) => {
-                let message = websocket::Message::pong(ping);
-                sender.send_message(&message).unwrap();
-                println!("Ponged");
             }
             websocket::OwnedMessage::Text(text) => {
                 println!("Text message received: {}", text);
                 let message: msg::command::Command = serde_json::from_str(&text)?;
-                let reply = process_message(message, scanner)?;
-                sender.send_message(&reply)?;
+                let reply = process_message(message, scanner, &send_msg)?;
+                send_msg.send(reply)?;
             }
             websocket::OwnedMessage::Binary(_) => {
                 println!("Binary message received, not supported");
@@ -84,32 +103,27 @@ fn handle_connection(
             }
         };
     }
+    sender_thread.join().unwrap();
     return Ok(());
 }
 
 fn process_message(
     command: msg::command::Command,
     scanner: &mut scanner::Scanner,
-) -> anyhow::Result<websocket::OwnedMessage> {
+    sender: &mpsc::Sender<Response>,
+) -> anyhow::Result<Response> {
     use msg::command::Command as cmd;
     match command {
-        cmd::Status => status(scanner),
-        cmd::Replay => replay(scanner),
+        cmd::Status => Ok(Response::Status(scanner.status())),
+        cmd::Replay => replay(scanner, sender.clone()),
     }
 }
 
-fn status(scanner: &scanner::Scanner) -> anyhow::Result<websocket::OwnedMessage> {
-    let status = scanner.status();
-    let response = serde_json::to_string(&status)?;
-    let message = websocket::OwnedMessage::Text(response);
-    return Ok(message);
-}
-
-fn replay(_scanner: &mut scanner::Scanner) -> anyhow::Result<websocket::OwnedMessage> {
-    //let result = scanner.start(sender);
-
-    let response = msg::response::Response::Ok;
-    let response = serde_json::to_string(&response)?;
-    let message = websocket::OwnedMessage::Text(response);
-    return Ok(message);
+fn replay(
+    scanner: &mut scanner::Scanner,
+    sender: mpsc::Sender<Response>,
+) -> anyhow::Result<Response> {
+    println!("Replay command received. Starting replay...");
+    let result = scanner.start(sender);
+    return Ok(msg::response::Response::Ok);
 }

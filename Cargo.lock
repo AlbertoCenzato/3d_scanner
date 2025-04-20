@@ -2438,6 +2438,7 @@ name = "msg"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "glam",
  "serde",
 ]
 
@@ -4193,6 +4194,7 @@ dependencies = [
  "eframe",
  "egui",
  "env_logger",
+ "glam",
  "log 0.4.22",
  "msg",
  "serde",

@@ -1,7 +1,10 @@
 use msg;
 
+use glam::Vec3;
 use serde_json;
-use std::sync::mpsc;
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
@@ -10,27 +13,25 @@ static SERVER_IP: &str = "192.168.1.12";
 
 struct Connection {
     ws: WebSocket,
-    rx: mpsc::Receiver<String>,
+    incoming_msg_queue: Rc<RefCell<VecDeque<String>>>,
 }
 
 impl Connection {
     fn new(url: &str) -> anyhow::Result<Self> {
         let ws = WebSocket::new(url)
             .map_err(|e| anyhow::Error::msg(format!("Failed to create WebSocket: {e:?}")))?;
-        let (tx, rx) = mpsc::channel();
+        let incoming_msg_queue = Rc::new(RefCell::new(VecDeque::<String>::new()));
+        let tx = incoming_msg_queue.clone();
 
         // Callback to handle incoming WebSocket messages
         let onmessage_callback = Closure::<dyn FnMut(MessageEvent)>::new(move |e: MessageEvent| {
+            log::info!("onmessage_callback");
             match e.data().as_string() {
                 Some(txt) => {
-                    let res = tx.send(txt.clone());
-                    if let Err(e) = res {
-                        log::error!("Failed to send message {txt} to channel: {e}");
-                    }
+                    log::info!("Received message {txt}");
+                    tx.borrow_mut().push_back(txt)
                 }
-                None => {
-                    log::error!("Failed to convert message to string");
-                }
+                None => log::error!("Failed to convert message to string"),
             }
         });
         ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
@@ -42,7 +43,22 @@ impl Connection {
         ws.set_onerror(Some(onerror_callback.as_ref().unchecked_ref()));
         onerror_callback.forget();
 
-        Ok(Connection { ws, rx })
+        let onopen_callback = Closure::<dyn FnMut(_)>::new(move |_: web_sys::Event| {
+            log::info!("WebSocket connection opened");
+        });
+        ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
+        onopen_callback.forget();
+
+        let onclose_callback = Closure::<dyn FnMut(_)>::new(move |_: web_sys::Event| {
+            log::info!("WebSocket connection closed");
+        });
+        ws.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
+        onclose_callback.forget();
+
+        Ok(Connection {
+            ws,
+            incoming_msg_queue,
+        })
     }
 
     fn send_message(&self, message: msg::command::Command) -> anyhow::Result<()> {
@@ -52,20 +68,21 @@ impl Connection {
         Ok(())
     }
 
-    fn try_receive_message(&self) -> anyhow::Result<msg::response::Response> {
-        match self.rx.try_recv() {
-            Ok(msg) => {
-                let message: msg::response::Response = serde_json::from_str(&msg)?;
-                Ok(message)
-            }
-            Err(_) => Err(anyhow::Error::msg("No message available")),
-        }
+    fn try_receive_message(&self) -> anyhow::Result<Option<msg::response::Response>> {
+        let opt_response = self
+            .incoming_msg_queue
+            .borrow_mut()
+            .pop_front()
+            .map(|msg| serde_json::from_str(&msg))
+            .transpose()?;
+        Ok(opt_response)
     }
 }
 
 pub struct App {
     connection: Option<Connection>,
     status: msg::response::Status,
+    points: Vec<glam::Vec3>,
 }
 
 impl App {
@@ -90,6 +107,7 @@ impl App {
                 },
                 motor_speed: 0_f32,
             },
+            points: Vec::new(),
         }
     }
 }
@@ -148,18 +166,33 @@ impl eframe::App for App {
 
         if let Some(conn) = &c {
             match conn.try_receive_message() {
-                Ok(msg) => match msg {
-                    msg::response::Response::Status(status) => {
-                        self.status = status;
-                    }
-                    msg::response::Response::Ok => {
-                        log::info!("Received OK");
-                    }
-                    msg::response::Response::Error => {
-                        log::info!("Received Error");
+                Ok(msg_opt) => match msg_opt {
+                    Some(msg) => match msg {
+                        msg::response::Response::Ok => {
+                            log::info!("Received OK");
+                        }
+                        msg::response::Response::Error => {
+                            log::info!("Received Error");
+                        }
+                        msg::response::Response::Close => {
+                            log::info!("Received Close");
+                            //self.connection = None;
+                        }
+                        msg::response::Response::Status(status) => {
+                            self.status = status;
+                        }
+                        msg::response::Response::PointCloud(pc) => {
+                            self.points = pc.points;
+                            log::info!("Received PointCloud");
+                        }
+                    },
+                    None => {
+                        // No message received, nothing to do
                     }
                 },
-                Err(_) => {}
+                Err(e) => {
+                    log::error!("Failed to receive message: {e}");
+                }
             }
         }
 
@@ -218,6 +251,19 @@ impl eframe::App for App {
             ui.label(format!("Motor speed: {}", self.status.motor_speed));
             ui.label(format!("Laser 1: {}", self.status.lasers.laser_1));
             ui.label(format!("Laser 2: {}", self.status.lasers.laser_2));
+
+            ui.separator();
+
+            ui.label("Point cloud:");
+            if self.points.len() > 0 {
+                ui.horizontal(|ui| {
+                    for point in &self.points {
+                        ui.label(format!("{point}"));
+                    }
+                });
+            } else {
+                ui.label("No points received yet");
+            }
 
             //let laser = ui.checkbox(checked, text);
 

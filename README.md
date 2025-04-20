@@ -16,7 +16,7 @@ The scanner's software is composed of two parts:
 To start the server:
 
 ```bash
-cargo run -r --bin scanner_3d "path/to/image/directory" ./server/calibration.json
+cargo run -r --bin scanner_3d run "path/to/image/directory" ./server/calibration.json
 ```
 
 The fastest way to build the server is to build it on a Raspberry Pi 5 with a decent amount of ram (>=4GB) or cross-compile it on a bigger machine (wasn't able to make [cross](https://github.com/cross-rs/cross) work for now, open to suggestions). See `docker/Dockerfile` for build dependencies.

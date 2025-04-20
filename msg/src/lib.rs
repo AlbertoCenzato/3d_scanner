@@ -17,7 +17,9 @@ pub mod response {
     pub enum Response {
         Ok,
         Error,
+        Close,
         Status(Status),
+        PointCloud(PointCloud),
     }
 
     #[derive(serde::Deserialize, serde::Serialize)]
@@ -30,5 +32,10 @@ pub mod response {
     pub struct LasersData {
         pub laser_1: bool,
         pub laser_2: bool,
+    }
+
+    #[derive(serde::Deserialize, serde::Serialize)]
+    pub struct PointCloud {
+        pub points: Vec<glam::Vec3>,
     }
 }
