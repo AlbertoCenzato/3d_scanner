@@ -13,8 +13,7 @@ pub fn process_image(
     angle_per_step: f32,
     calib: &calibration::Calibration,
     motor: &mut dyn StepperMotor,
-    point_cloud: &mut Vec<glam::Vec3>,
-) -> Result<()> {
+) -> Vec<glam::Vec3> {
     rec.set_time_sequence("timeline", i as i64);
     motor.step(1);
     let res = rec.log_image(
@@ -25,16 +24,17 @@ pub fn process_image(
         println!("Failed to log image to logger: {e}");
     }
 
-    let transform = glam::Affine3A::from_rotation_z(angle_per_step);
-    for point in &mut *point_cloud {
-        *point = transform.transform_point3(*point);
-    }
+    //let transform = glam::Affine3A::from_rotation_z(angle_per_step);
+    //for point in &mut *point_cloud {
+    //    *point = transform.transform_point3(*point);
+    //}
 
-    let mut new_points = triangulate(&image, &calib);
-    rec.log_points("world/points_3d_cam", &new_points)?;
-    point_cloud.append(&mut new_points);
-    rec.log_points("world/points_3d_world", &point_cloud)?;
-    Ok(())
+    let new_points = triangulate(&image, &calib);
+    //rec.log_points("world/points_3d_cam", &new_points)?;
+    //point_cloud.append(&mut new_points);
+    //rec.log_points("world/points_3d_world", &point_cloud)?;
+    //Ok(())
+    return new_points;
 }
 
 fn triangulate(image: &image::GrayImage, calib: &calibration::Calibration) -> Vec<glam::Vec3> {

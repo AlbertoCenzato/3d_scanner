@@ -1,12 +1,14 @@
 use crate::calibration;
-use crate::img_processing;
+use crate::imgproc;
 use crate::logging;
 use crate::motor;
-use anyhow::Error;
 use anyhow::Result;
+use msg::response;
+use msg::response::PointCloud;
+use msg::response::Response;
 use std::f32::consts::PI;
 use std::path::{Path, PathBuf};
-use std::{io, vec::IntoIter};
+use std::{io, sync::mpsc, vec::IntoIter};
 
 pub enum CameraType {
     DiskLoader(std::path::PathBuf),
@@ -35,10 +37,11 @@ impl std::fmt::Display for CameraError {
 
 pub trait Camera {
     fn acquire_from_camera(
-        &self,
+        &mut self,
         rec: &dyn logging::Logger,
         calib: &calibration::Calibration,
         motor: &mut dyn motor::StepperMotor,
+        scanned_data_queue: mpsc::Sender<Response>,
     ) -> Result<Vec<glam::Vec3>>;
 }
 
@@ -84,27 +87,22 @@ impl DiskCamera {
 
 impl Camera for DiskCamera {
     fn acquire_from_camera(
-        &self,
+        &mut self,
         rec: &dyn logging::Logger,
         calib: &calibration::Calibration,
         motor: &mut dyn motor::StepperMotor,
+        scanned_data_queue: mpsc::Sender<Response>,
     ) -> Result<Vec<glam::Vec3>> {
-        let mut camera = DiskCamera::from_directory(Path::new("images"))?;
-
         let mut point_cloud = Vec::<glam::Vec3>::new();
         let angle_per_step = 5_f32.to_radians();
         let steps = (2_f32 * PI / angle_per_step).ceil() as i32;
         for i in 0..steps {
-            let image = camera.get_image()?;
-            img_processing::process_image(
-                &image,
-                i as i64,
-                rec,
-                angle_per_step,
-                &calib,
-                motor,
-                &mut point_cloud,
-            )?;
+            let image = self.get_image()?;
+            let new_points =
+                imgproc::process_image(&image, i as i64, rec, angle_per_step, &calib, motor);
+
+            let response = PointCloud { points: new_points };
+            scanned_data_queue.send(Response::PointCloud(response))?;
         }
 
         Ok(point_cloud)
@@ -127,6 +125,7 @@ pub mod real_camera {
         request::{Request, ReuseFlag},
         stream::StreamRole,
     };
+    use msg::response::PointCloud;
     use std::time::Duration;
 
     // drm-fourcc does not have MJPEG type yet, construct it from raw fourcc identifier
@@ -140,10 +139,11 @@ pub mod real_camera {
 
     impl Camera for PiCamera {
         fn acquire_from_camera(
-            &self,
+            &mut self,
             rec: &dyn logging::Logger,
             calib: &calibration::Calibration,
             motor: &mut dyn motor::StepperMotor,
+            scanned_data_queue: mpsc::Sender<Response>,
         ) -> Result<Vec<glam::Vec3>> {
             let mngr = CameraManager::new()?;
             let cameras = mngr.cameras();
@@ -224,7 +224,7 @@ pub mod real_camera {
                 println!("Acquiring image {}", i);
                 let image = get_image(&cam, &stream, &frame_size, &mut reqs, &rx)?;
                 println!("Processing image {}", i);
-                img_processing::process_image(
+                imgproc::process_image(
                     &image,
                     i as i64,
                     rec,
@@ -233,6 +233,13 @@ pub mod real_camera {
                     motor,
                     &mut point_cloud,
                 )?;
+
+                let fake_data = i as f32;
+                let response = PointCloud {
+                    points: vec![glam::Vec3::new(fake_data, fake_data, fake_data)],
+                };
+                scanned_data_queue.send(Response::PointCloud(response))?;
+
                 motor.step(1);
                 std::thread::sleep(Duration::from_millis(100));
             }

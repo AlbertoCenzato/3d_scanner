@@ -22,7 +22,7 @@ jobs:
         token: '${{ secrets.GHCR_PAT }}'
 
     - name: Cache dependencies
-      uses: actions/cache@v4.2.0
+      uses: actions/cache@v4.2.1
       with:
         path: |
           ~/.cargo

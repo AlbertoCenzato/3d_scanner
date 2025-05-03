@@ -72,8 +72,12 @@ pub struct Calibration {
     pub right_laser: LaserCalib,
 }
 
+fn decorate_with_path(e: std::io::Error, path: &std::path::Path) -> std::io::Error {
+    return std::io::Error::new(e.kind(), format!("{}: {}", path.display(), e));
+}
+
 pub fn load_calibration(path: &std::path::Path) -> Result<Calibration> {
-    let file = std::fs::File::open(path)?;
+    let file = std::fs::File::open(path).map_err(|e| decorate_with_path(e, path))?;
     let reader = std::io::BufReader::new(file);
     let json: Calibration = serde_json::from_reader(reader)?;
     return Ok(json);

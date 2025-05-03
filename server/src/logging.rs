@@ -13,6 +13,7 @@ pub trait Logger {
     fn set_time_sequence(&self, id: &str, time: i64);
 }
 
+#[allow(unused)]
 pub fn make_logger(logger_name: &str, address: std::net::SocketAddr) -> Result<Box<dyn Logger>> {
     #[cfg(feature = "rerun")]
     let logger: Box<dyn Logger> = Box::new(rerun::RerunLogger::new(&logger_name, address)?);
@@ -34,8 +35,9 @@ pub mod rerun {
 
     impl RerunLogger {
         pub fn new(name: &str, address: std::net::SocketAddr) -> Result<RerunLogger> {
+            let connection_timeout = Some(std::time::Duration::from_secs(1));
             let rec = rerun::RecordingStreamBuilder::new(name)
-                .connect_opts(address, rerun::default_flush_timeout())?;
+                .connect_opts(address, connection_timeout)?;
             log_world_reference_system(&rec)?;
             return Ok(RerunLogger { rec });
         }
