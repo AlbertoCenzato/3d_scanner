@@ -409,8 +409,8 @@ impl eframe::App for App {
                         msg::response::Response::Status(status) => {
                             self.status = status;
                         }
-                        msg::response::Response::PointCloud(pc) => {
-                            self.points = pc.points;
+                        msg::response::Response::PointCloud(mut pc) => {
+                            self.points.append(&mut pc.points);
                             log::info!("Received PointCloud");
                         }
                     },
@@ -502,7 +502,7 @@ impl eframe::App for App {
             });
         });
 
-        //ctx.request_repaint(); // triggers a repaint as soon as possible
+        ctx.request_repaint(); // triggers a repaint as soon as possible
     }
 }
 
