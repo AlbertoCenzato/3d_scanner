@@ -29,11 +29,17 @@ pub fn process_image(
     //    *point = transform.transform_point3(*point);
     //}
 
-    let new_points = triangulate(&image, &calib);
+    let mut new_points = triangulate(&image, &calib);
     //rec.log_points("world/points_3d_cam", &new_points)?;
     //point_cloud.append(&mut new_points);
     //rec.log_points("world/points_3d_world", &point_cloud)?;
     //Ok(())
+
+    let transform = glam::Affine3A::from_rotation_z(-(i as f32) * angle_per_step);
+    for point in &mut new_points {
+        *point = transform.transform_point3(*point);
+    }
+
     return new_points;
 }
 
