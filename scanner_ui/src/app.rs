@@ -339,24 +339,25 @@ impl eframe::App for App {
                 self.render_ctx = Some(render_ctx);
             }
 
-            let point_data: Vec<Point> = vec![
-                Point {
-                    position: [0.0, 0.0, 0.0],
-                    _padding: 0.0,
-                },
-                Point {
-                    position: [100.0, 100.0, 100.0],
-                    _padding: 0.0,
-                },
-            ];
-            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Point Cloud Vertex Buffer"),
-                contents: bytemuck::cast_slice(&point_data),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+            if self.points.len() > 0 {
+                let point_data: Vec<Point> = self
+                    .points
+                    .iter()
+                    .map(|p| Point {
+                        position: [50.0 * p.x, 50.0 * p.y, 10.0 * p.z],
+                        _padding: 0.0,
+                    })
+                    .collect();
 
-            let ctx = self.render_ctx.as_ref().unwrap();
-            ctx.render(&device, &queue, &vertex_buffer, point_data.len() as u32);
+                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Point Cloud Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&point_data),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+
+                let ctx = self.render_ctx.as_ref().unwrap();
+                ctx.render(&device, &queue, &vertex_buffer, point_data.len() as u32);
+            }
         }
 
         if self.connection.is_none() {
