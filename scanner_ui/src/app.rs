@@ -1,8 +1,7 @@
+use crate::draw;
+use crate::render_ctx::{Point, RenderCtx};
 use msg;
 
-use eframe::egui_wgpu;
-use eframe::epaint;
-use egui_plot::{Plot, PlotPoints, Points};
 use glam::Vec3;
 use serde_json;
 use std::cell::RefCell;
@@ -13,10 +12,8 @@ use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
 use wgpu;
 use wgpu::util::DeviceExt;
-use wgpu::TextureFormat;
 
 static SERVER_IP: &str = "192.168.1.12";
-const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 struct Connection {
     ws: WebSocket,
@@ -133,183 +130,6 @@ fn to_string(ws_state: u16) -> String {
     return state_str.to_string();
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct Point {
-    position: [f32; 3],
-    _padding: f32, // Ensure 16-byte alignment
-}
-
-fn init_camera_matrix(width: u32, height: u32) -> glam::Mat4 {
-    let eye = glam::Vec3::new(0.0, 0.0, 5.0); // Camera position
-    let target = glam::Vec3::ZERO; // Looking at origin
-    let up = glam::Vec3::Y; // Up direction
-    let view = glam::Mat4::look_at_rh(eye, target, up);
-    let fovy = std::f32::consts::FRAC_PI_4; // 45 degrees
-    let aspect = width as f32 / height as f32;
-    let near = 0.1;
-    let far = 100.0;
-
-    let projection = glam::Mat4::perspective_rh_gl(fovy, aspect, near, far);
-    return projection * view;
-}
-
-struct RenderCtx {
-    shader: wgpu::ShaderModule,
-    camera_buffer: wgpu::Buffer,
-    camera_bind_group: wgpu::BindGroup,
-    render_pipeline: wgpu::RenderPipeline,
-    pointcloud_texture: wgpu::Texture,
-    texture_view: wgpu::TextureView,
-    texture_id: Option<epaint::TextureId>,
-}
-
-impl RenderCtx {
-    fn new(device: &wgpu::Device, width: u32, height: u32) -> RenderCtx {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("point_cloud.wgsl"));
-
-        let camera_matrix = init_camera_matrix(width, height);
-        let view_proj_std140: [f32; 16] = camera_matrix.to_cols_array();
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[view_proj_std140]), // mat4x4<f32>
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("camera_bind_group_layout"),
-            });
-
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
-            label: Some("camera_bind_group"),
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Pipeline Layout"),
-            bind_group_layouts: &[&camera_bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Point Cloud Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Point>() as wgpu::BufferAddress,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &[wgpu::VertexAttribute {
-                        offset: 0,
-                        shader_location: 0,
-                        format: wgpu::VertexFormat::Float32x3,
-                    }],
-                }],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: TEXTURE_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::PointList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
-
-        // ------ setup texture to render to -------------
-        let texture_extent = wgpu::Extent3d {
-            width: 1024,
-            height: 768,
-            depth_or_array_layers: 1,
-        };
-
-        let pointcloud_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Point Cloud Render Target"),
-            size: texture_extent,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: TEXTURE_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-
-        let texture_view = pointcloud_texture.create_view(&Default::default());
-
-        return RenderCtx {
-            shader,
-            camera_buffer,
-            camera_bind_group,
-            render_pipeline,
-            pointcloud_texture,
-            texture_view,
-            texture_id: None,
-        };
-    }
-
-    fn render(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        vertex_buffer: &wgpu::Buffer,
-        num_points: u32,
-    ) {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
-
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.texture_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, Some(&self.camera_bind_group), &[]);
-        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        render_pass.draw(0..num_points, 0..1);
-        drop(render_pass);
-
-        queue.submit(std::iter::once(encoder.finish()));
-    }
-}
-
 impl eframe::App for App {
     /// Called by the frame work to save state before shutdown.
     //fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -339,25 +159,24 @@ impl eframe::App for App {
                 self.render_ctx = Some(render_ctx);
             }
 
-            if self.points.len() > 0 {
-                let point_data: Vec<Point> = self
-                    .points
-                    .iter()
-                    .map(|p| Point {
-                        position: [50.0 * p.x, 50.0 * p.y, 10.0 * p.z],
-                        _padding: 0.0,
-                    })
-                    .collect();
+            //if self.points.len() > 0 {
+            const X: Vec3 = Vec3::new(1_f32, 0_f32, 0_f32);
+            const Y: Vec3 = Vec3::new(0_f32, 1_f32, 0_f32);
+            const Z: Vec3 = Vec3::new(0_f32, 0_f32, 1_f32);
+            let mut points = Vec::<Vec3>::new();
+            draw::cylinder(0.5, Vec3::ZERO, 1.0 * Y, &mut points);
+            //draw::cylinder(1.5, glam::Vec3::ZERO, glam::Vec3::new(0_f32, 1f32, 1f32));
+            let point_data: Vec<Point> = points.iter().map(|p| Point::new(p)).collect();
 
-                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Point Cloud Vertex Buffer"),
-                    contents: bytemuck::cast_slice(&point_data),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
+            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Point Cloud Vertex Buffer"),
+                contents: bytemuck::cast_slice(&point_data),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
 
-                let ctx = self.render_ctx.as_ref().unwrap();
-                ctx.render(&device, &queue, &vertex_buffer, point_data.len() as u32);
-            }
+            let ctx = self.render_ctx.as_ref().unwrap();
+            ctx.render(&device, &queue, &vertex_buffer, point_data.len() as u32);
+            //}
         }
 
         if self.connection.is_none() {
