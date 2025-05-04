@@ -14,8 +14,12 @@ struct VertexOutput {
 @vertex
 fn vs_main(@location(0) pos: vec3<f32>) -> VertexOutput {
     var out: VertexOutput;
+
     out.position = camera.view_proj * vec4<f32>(pos, 1.0);
-    out.color = vec3<f32>(1.0, 1.0, 1.0); // white
+    let r = clamp(pos.x/ 3 , 0, 1);
+    let g = clamp(pos.y/ 3 , 0, 1);
+    let b = clamp(pos.z/ 3 , 0, 1);
+    out.color = vec3<f32>(r, g, b); // white
     return out;
 }
 
