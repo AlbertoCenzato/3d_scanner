@@ -1,7 +1,7 @@
 use bytemuck;
 use eframe::epaint;
 use glam::{Mat4, Vec3};
-use wgpu::util::DeviceExt;
+use wgpu::CommandBuffer;
 
 const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
@@ -21,18 +21,10 @@ impl Point {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vector {
-    position: [f32; 3],
-    _padding: f32, // Ensure 16-byte alignment
-}
-
-fn init_camera_matrix(width: u32, height: u32) -> Mat4 {
-    let eye = Vec3::new(0.0, 0.0, 5.0); // Camera position
+pub fn init_camera_matrix(width: u32, height: u32, camera_position: Vec3) -> Mat4 {
     let target = Vec3::ZERO; // Looking at origin
     let up = Vec3::Y; // Up direction
-    let view = Mat4::look_at_rh(eye, target, up);
+    let view = Mat4::look_at_rh(camera_position, target, up);
     let fovy = std::f32::consts::FRAC_PI_4; // 45 degrees
     let aspect = width as f32 / height as f32;
     let near = 0.1;
@@ -44,6 +36,8 @@ fn init_camera_matrix(width: u32, height: u32) -> Mat4 {
 
 pub struct RenderCtx {
     shader: wgpu::ShaderModule,
+    pub camera_buffer_size: wgpu::BufferAddress,
+    pub camera_staging_buffer: wgpu::Buffer,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     render_pipeline: wgpu::RenderPipeline,
@@ -53,16 +47,27 @@ pub struct RenderCtx {
 }
 
 impl RenderCtx {
-    pub fn new(device: &wgpu::Device, width: u32, height: u32) -> RenderCtx {
+    pub fn new(device: &wgpu::Device) -> RenderCtx {
         let shader = device.create_shader_module(wgpu::include_wgsl!("point_cloud.wgsl"));
 
-        let camera_matrix = init_camera_matrix(width, height);
-        let view_proj_std140: [f32; 16] = camera_matrix.to_cols_array();
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let camera_buffer_size = std::mem::size_of::<[f32; 16]>() as wgpu::BufferAddress;
+        let camera_staging_flags = wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
+        let camera_staging_descriptor = wgpu::BufferDescriptor {
+            label: Some("Camera Staging Buffer"),
+            usage: camera_staging_flags,
+            size: camera_buffer_size,
+            mapped_at_creation: false,
+        };
+        let camera_staging_buffer = device.create_buffer(&camera_staging_descriptor);
+
+        let camera_usage_flags = wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST;
+        let camera_descriptor = wgpu::BufferDescriptor {
             label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[view_proj_std140]), // mat4x4<f32>
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+            usage: camera_usage_flags,
+            size: camera_buffer_size,
+            mapped_at_creation: false,
+        };
+        let camera_buffer = device.create_buffer(&camera_descriptor);
 
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -153,6 +158,8 @@ impl RenderCtx {
 
         return RenderCtx {
             shader,
+            camera_buffer_size,
+            camera_staging_buffer,
             camera_buffer,
             camera_bind_group,
             render_pipeline,
@@ -165,14 +172,20 @@ impl RenderCtx {
     pub fn render(
         &self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
         vertex_buffer: &wgpu::Buffer,
         num_points: u32,
-    ) {
+    ) -> CommandBuffer {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
 
+        encoder.copy_buffer_to_buffer(
+            &self.camera_staging_buffer,
+            0,
+            &self.camera_buffer,
+            0,
+            self.camera_buffer_size,
+        );
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -194,6 +207,6 @@ impl RenderCtx {
         render_pass.draw(0..num_points, 0..1);
         drop(render_pass);
 
-        queue.submit(std::iter::once(encoder.finish()));
+        return encoder.finish();
     }
 }

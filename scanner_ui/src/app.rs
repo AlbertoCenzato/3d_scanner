@@ -1,5 +1,5 @@
 use crate::draw;
-use crate::render_ctx::{Point, RenderCtx};
+use crate::render_ctx::{init_camera_matrix, Point, RenderCtx};
 use msg;
 
 use glam::Vec3;
@@ -88,6 +88,9 @@ pub struct App {
     status: msg::response::Status,
     points: Vec<glam::Vec3>,
     render_ctx: Option<RenderCtx>,
+    camera_position: glam::Vec3,
+    time_s: f32,
+    freerun: bool,
 }
 
 impl App {
@@ -114,6 +117,9 @@ impl App {
             },
             points: Vec::new(),
             render_ctx: None,
+            camera_position: glam::Vec3::new(0.0, 5.0, 5.0), // Initial camera position
+            time_s: 0.0,
+            freerun: false,
         }
     }
 }
@@ -130,6 +136,16 @@ fn to_string(ws_state: u16) -> String {
     return state_str.to_string();
 }
 
+fn move_camera(camera_position: glam::Vec3, time_s: f32) -> glam::Vec3 {
+    // Move the camera in a circular path around the origin
+    /* let angle = time_s;
+    let radius = 5.0;
+    let y = radius * angle.cos();
+    let z = radius * angle.sin();
+    glam::Vec3::new(camera_position.x, y, z) */
+    draw::rotate_rodrigues(camera_position, Vec3::Y, 0.1)
+}
+
 impl eframe::App for App {
     /// Called by the frame work to save state before shutdown.
     //fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -138,16 +154,16 @@ impl eframe::App for App {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.time_s += 0.01;
         let mut gpu_name = "Unknown GPU".to_string();
         if let Some(wgpu_state) = frame.wgpu_render_state() {
             let info = &wgpu_state.adapter;
             gpu_name = format!("{:?}", info);
             let device = &wgpu_state.device;
-            let queue = &wgpu_state.queue;
 
             if self.render_ctx.is_none() {
                 log::info!("Setting up render pipeline");
-                let mut render_ctx = RenderCtx::new(device, 800, 600);
+                let mut render_ctx = RenderCtx::new(device);
                 let mut renderer = wgpu_state.renderer.write();
                 let texture_id = renderer.register_native_texture(
                     device,
@@ -160,11 +176,9 @@ impl eframe::App for App {
             }
 
             //if self.points.len() > 0 {
-            const X: Vec3 = Vec3::new(1_f32, 0_f32, 0_f32);
-            const Y: Vec3 = Vec3::new(0_f32, 1_f32, 0_f32);
-            const Z: Vec3 = Vec3::new(0_f32, 0_f32, 1_f32);
             let mut points = Vec::<Vec3>::new();
-            draw::cylinder(0.5, Vec3::ZERO, 1.0 * Y, &mut points);
+            draw::axis(&mut points);
+
             //draw::cylinder(1.5, glam::Vec3::ZERO, glam::Vec3::new(0_f32, 1f32, 1f32));
             let point_data: Vec<Point> = points.iter().map(|p| Point::new(p)).collect();
 
@@ -174,9 +188,32 @@ impl eframe::App for App {
                 usage: wgpu::BufferUsages::VERTEX,
             });
 
-            let ctx = self.render_ctx.as_ref().unwrap();
-            ctx.render(&device, &queue, &vertex_buffer, point_data.len() as u32);
-            //}
+            let ctx = self.render_ctx.as_mut().unwrap();
+
+            self.camera_position = move_camera(self.camera_position, self.time_s);
+            log::info!("Camera position: {:?}", self.camera_position);
+
+            let camera_matrix = init_camera_matrix(1024, 768, self.camera_position);
+            let view_proj_std140: [f32; 16] = camera_matrix.to_cols_array();
+
+            let queue = &wgpu_state.queue;
+            queue.write_buffer(
+                &ctx.camera_staging_buffer,
+                0,
+                bytemuck::cast_slice(&view_proj_std140),
+            );
+
+            log::info!("Rendering...");
+            let command_buffer = ctx.render(&device, &vertex_buffer, point_data.len() as u32);
+
+            log::info!("Submitting command buffer...");
+            queue.submit(std::iter::once(command_buffer));
+            vertex_buffer.destroy();
+
+            //log::info!("Updating camera position: {:?}", self.camera_position);
+            //ctx.update_camera_position(self.camera_position.clone());
+            //
+            //device.poll(wgpu::Maintain::Poll);
         }
 
         if self.connection.is_none() {
@@ -270,6 +307,8 @@ impl eframe::App for App {
 
             ui.separator();
 
+            ui.checkbox(&mut self.freerun, "Freerun");
+
             let status_button = ui.button("Get Status");
             if status_button.clicked() {
                 log::info!("Sending status request");
@@ -321,7 +360,9 @@ impl eframe::App for App {
             });
         });
 
-        ctx.request_repaint(); // triggers a repaint as soon as possible
+        if self.freerun {
+            ctx.request_repaint(); // triggers a repaint as soon as possible
+        }
     }
 }
 
