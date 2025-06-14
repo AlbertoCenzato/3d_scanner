@@ -23,7 +23,7 @@ impl Point {
 
 pub fn init_camera_matrix(width: u32, height: u32, camera_position: Vec3) -> Mat4 {
     let target = Vec3::ZERO; // Looking at origin
-    let up = Vec3::Y; // Up direction
+    let up = Vec3::Z; // Up direction
     let view = Mat4::look_at_rh(camera_position, target, up);
     let fovy = std::f32::consts::FRAC_PI_4; // 45 degrees
     let aspect = width as f32 / height as f32;

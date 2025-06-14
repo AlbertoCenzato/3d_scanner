@@ -143,7 +143,7 @@ fn move_camera(camera_position: glam::Vec3, time_s: f32) -> glam::Vec3 {
     let y = radius * angle.cos();
     let z = radius * angle.sin();
     glam::Vec3::new(camera_position.x, y, z) */
-    draw::rotate_rodrigues(camera_position, Vec3::Y, 0.1)
+    draw::rotate_rodrigues(camera_position, Vec3::Z, 0.1)
 }
 
 impl eframe::App for App {
