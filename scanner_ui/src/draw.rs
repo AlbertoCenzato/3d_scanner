@@ -34,7 +34,7 @@ pub fn segment(p1: Vec3, p2: Vec3) -> Vec<Vec3> {
 pub fn cylinder(r: f32, origin: Vec3, axis: Vec3, steps: u32, points: &mut Vec<Vec3>) {
     let top_face = origin + axis;
     let v1 = axis.any_orthonormal_vector();
-    let v2 = axis.cross(v1);
+    let v2 = axis.cross(v1).normalize();
     circle(r, origin, v1, v2, points);
     for step in 0..steps {
         let s = (step as f32) / (steps as f32);
@@ -44,15 +44,20 @@ pub fn cylinder(r: f32, origin: Vec3, axis: Vec3, steps: u32, points: &mut Vec<V
     circle(r, origin + axis, v1, v2, points);
 }
 
-pub fn cone(r: f32, origin: Vec3, axis: Vec3, steps: u32, points: &mut Vec<Vec3>) {
-    let top_face = origin + axis;
+fn lerp(a: f32, b: f32, s: f32) -> f32 {
+    a + (b - a) * s
+}
+
+pub fn cone(base_radius: f32, origin: Vec3, axis: Vec3, steps: u32, points: &mut Vec<Vec3>) {
+    let vertex_pos = origin + axis;
     let v1 = axis.any_orthonormal_vector();
-    let v2 = axis.cross(v1);
-    circle(r, origin, v1, v2, points);
+    let v2 = axis.cross(v1).normalize();
+    circle(base_radius, origin, v1, v2, points);
     for step in 0..steps {
         let s = (step as f32) / (steps as f32);
-        let center = origin.lerp(top_face, s);
-        circumference(r * (1.0 - s), center, v1, v2, points);
+        let center = origin.lerp(vertex_pos, s);
+        let radius = lerp(0_f32, base_radius, 1_f32 - s);
+        circumference(radius, center, v1, v2, points);
     }
 }
 
