@@ -44,6 +44,8 @@ pub struct RenderCtx {
     pointcloud_texture: wgpu::Texture,
     pub texture_view: wgpu::TextureView,
     pub texture_id: Option<epaint::TextureId>,
+    depth_texture: wgpu::Texture,
+    depth_view: wgpu::TextureView,
 }
 
 impl RenderCtx {
@@ -99,6 +101,38 @@ impl RenderCtx {
             push_constant_ranges: &[],
         });
 
+        // ------ setup texture to render to -------------
+        let texture_extent = wgpu::Extent3d {
+            width: 1024,
+            height: 768,
+            depth_or_array_layers: 1,
+        };
+
+        let pointcloud_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Point Cloud Render Target"),
+            size: texture_extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TEXTURE_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let texture_view = pointcloud_texture.create_view(&Default::default());
+
+        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Depth Texture"),
+            size: texture_extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth24Plus,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let depth_view = depth_texture.create_view(&Default::default());
+
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Point Cloud Pipeline"),
             layout: Some(&pipeline_layout),
@@ -130,31 +164,17 @@ impl RenderCtx {
                 topology: wgpu::PrimitiveTopology::PointList,
                 ..Default::default()
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth24Plus,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
         });
-
-        // ------ setup texture to render to -------------
-        let texture_extent = wgpu::Extent3d {
-            width: 1024,
-            height: 768,
-            depth_or_array_layers: 1,
-        };
-
-        let pointcloud_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Point Cloud Render Target"),
-            size: texture_extent,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: TEXTURE_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-
-        let texture_view = pointcloud_texture.create_view(&Default::default());
 
         return RenderCtx {
             shader,
@@ -166,6 +186,8 @@ impl RenderCtx {
             pointcloud_texture,
             texture_view,
             texture_id: None,
+            depth_texture,
+            depth_view,
         };
     }
 
@@ -196,7 +218,14 @@ impl RenderCtx {
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
             timestamp_writes: None,
             occlusion_query_set: None,
         });
