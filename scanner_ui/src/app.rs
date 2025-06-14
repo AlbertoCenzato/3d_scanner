@@ -1,8 +1,8 @@
 use crate::draw;
-use crate::render_ctx::{init_camera_matrix, Point, RenderCtx};
+use crate::render_ctx::{Point, RenderCtx};
 use msg;
 
-use glam::Vec3;
+use glam::{Mat4, Vec3};
 use serde_json;
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -88,7 +88,6 @@ pub struct App {
     status: msg::response::Status,
     points: Vec<glam::Vec3>,
     render_ctx: Option<RenderCtx>,
-    camera_position: glam::Vec3,
     time_s: f32,
     freerun: bool,
 }
@@ -117,7 +116,6 @@ impl App {
             },
             points: Vec::new(),
             render_ctx: None,
-            camera_position: glam::Vec3::new(0.0, 5.0, 5.0), // Initial camera position
             time_s: 0.0,
             freerun: false,
         }
@@ -134,16 +132,6 @@ fn to_string(ws_state: u16) -> String {
     };
 
     return state_str.to_string();
-}
-
-fn move_camera(camera_position: glam::Vec3, time_s: f32) -> glam::Vec3 {
-    // Move the camera in a circular path around the origin
-    /* let angle = time_s;
-    let radius = 5.0;
-    let y = radius * angle.cos();
-    let z = radius * angle.sin();
-    glam::Vec3::new(camera_position.x, y, z) */
-    draw::rotate_rodrigues(camera_position, Vec3::Z, 0.1)
 }
 
 impl eframe::App for App {
@@ -190,10 +178,7 @@ impl eframe::App for App {
 
             let ctx = self.render_ctx.as_mut().unwrap();
 
-            self.camera_position = move_camera(self.camera_position, self.time_s);
-            log::info!("Camera position: {:?}", self.camera_position);
-
-            let camera_matrix = init_camera_matrix(1024, 768, self.camera_position);
+            let camera_matrix = ctx.camera_projection * ctx.camera_position;
             let view_proj_std140: [f32; 16] = camera_matrix.to_cols_array();
 
             let queue = &wgpu_state.queue;
@@ -308,6 +293,50 @@ impl eframe::App for App {
             ui.separator();
 
             ui.checkbox(&mut self.freerun, "Freerun");
+
+            const ROTATION_SPEED: f32 = 0.1;
+            let mut rot_vec = Vec3::X;
+            let mut direction = 0_f32;
+
+            ui.horizontal(|ui| {
+                ui.label("X");
+                if ui.button("-").is_pointer_button_down_on() {
+                    rot_vec = Vec3::X;
+                    direction = -1.0;
+                }
+                if ui.button("+").is_pointer_button_down_on() {
+                    rot_vec = Vec3::X;
+                    direction = 1.0;
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Y");
+                if ui.button("-").is_pointer_button_down_on() {
+                    rot_vec = Vec3::Y;
+                    direction = -1.0;
+                }
+                if ui.button("+").is_pointer_button_down_on() {
+                    rot_vec = Vec3::Y;
+                    direction = 1.0;
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Z");
+                if ui.button("-").is_pointer_button_down_on() {
+                    rot_vec = Vec3::Z;
+                    direction = -1.0;
+                }
+                if ui.button("+").is_pointer_button_down_on() {
+                    rot_vec = Vec3::Z;
+                    direction = 1.0;
+                }
+            });
+
+            if let Some(ctx) = self.render_ctx.as_mut() {
+                let step = direction * ROTATION_SPEED;
+                let q = glam::Quat::from_axis_angle(rot_vec, step);
+                ctx.camera_position = ctx.camera_position * Mat4::from_quat(q);
+            }
 
             let status_button = ui.button("Get Status");
             if status_button.clicked() {

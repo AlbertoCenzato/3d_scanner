@@ -21,19 +21,6 @@ impl Point {
     }
 }
 
-pub fn init_camera_matrix(width: u32, height: u32, camera_position: Vec3) -> Mat4 {
-    let target = Vec3::ZERO; // Looking at origin
-    let up = Vec3::Z; // Up direction
-    let view = Mat4::look_at_rh(camera_position, target, up);
-    let fovy = std::f32::consts::FRAC_PI_4; // 45 degrees
-    let aspect = width as f32 / height as f32;
-    let near = 0.1;
-    let far = 100.0;
-
-    let projection = Mat4::perspective_rh_gl(fovy, aspect, near, far);
-    return projection * view;
-}
-
 pub struct RenderCtx {
     shader: wgpu::ShaderModule,
     pub camera_buffer_size: wgpu::BufferAddress,
@@ -46,6 +33,8 @@ pub struct RenderCtx {
     pub texture_id: Option<epaint::TextureId>,
     depth_texture: wgpu::Texture,
     depth_view: wgpu::TextureView,
+    pub camera_position: Mat4,
+    pub camera_projection: Mat4,
 }
 
 impl RenderCtx {
@@ -176,6 +165,20 @@ impl RenderCtx {
             cache: None,
         });
 
+        const CAMERA_ORIGIN: Vec3 = Vec3::new(0.0, 5.0, 5.0);
+        const WIDTH: u32 = 1024;
+        const HEIGHT: u32 = 768;
+
+        let target = Vec3::ZERO; // Looking at origin
+        let up = Vec3::Z; // Up direction
+        let camera_position = Mat4::look_at_rh(CAMERA_ORIGIN, target, up);
+
+        let fovy = std::f32::consts::FRAC_PI_4; // 45 degrees
+        let aspect = WIDTH as f32 / HEIGHT as f32;
+        let near = 0.1;
+        let far = 100.0;
+        let camera_projection = Mat4::perspective_rh_gl(fovy, aspect, near, far);
+
         return RenderCtx {
             shader,
             camera_buffer_size,
@@ -188,6 +191,8 @@ impl RenderCtx {
             texture_id: None,
             depth_texture,
             depth_view,
+            camera_position,
+            camera_projection,
         };
     }
 

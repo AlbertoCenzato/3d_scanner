@@ -1,9 +1,4 @@
-use glam::Vec3;
-
-pub fn rotate_rodrigues(v: Vec3, unit_axis: Vec3, angle_rad: f32) -> Vec3 {
-    let cos = angle_rad.cos();
-    v * cos + unit_axis.cross(v) * angle_rad.sin() + unit_axis * unit_axis.dot(v) * (1.0 - cos)
-}
+use glam::{Mat4, Vec3};
 
 pub fn circumference(r: f32, center: Vec3, v1: Vec3, v2: Vec3, points: &mut Vec<Vec3>) {
     for t in 0..360 {
