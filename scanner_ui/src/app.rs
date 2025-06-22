@@ -13,7 +13,7 @@ use web_sys::{MessageEvent, WebSocket};
 use wgpu;
 use wgpu::util::DeviceExt;
 
-static SERVER_IP: &str = "192.168.1.12";
+static SERVER_IP: &str = "192.168.1.9";
 
 struct Connection {
     ws: WebSocket,
@@ -164,10 +164,13 @@ impl eframe::App for App {
             }
 
             //if self.points.len() > 0 {
-            let mut points = Vec::<Vec3>::new();
+            let mut points = self
+                .points
+                .iter()
+                .map(|p| 10_f32 * *p)
+                .collect::<Vec<glam::Vec3>>();
             draw::axis(&mut points);
 
-            //draw::cylinder(1.5, glam::Vec3::ZERO, glam::Vec3::new(0_f32, 1f32, 1f32));
             let point_data: Vec<Point> = points.iter().map(|p| Point::new(p)).collect();
 
             let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
