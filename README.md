@@ -16,12 +16,12 @@ The scanner's software is composed of two parts:
 To start the server:
 
 ```bash
-cargo run -r --bin scanner_3d run "path/to/image/directory" ./server/calibration.json
+cargo run -r --bin server run "path/to/image/directory" ./server/calibration.json
 ```
 
 The fastest way to build the server is to build it on a Raspberry Pi 5 with a decent amount of ram (>=4GB) or cross-compile it on a bigger machine (wasn't able to make [cross](https://github.com/cross-rs/cross) work for now, open to suggestions). See `docker/Dockerfile` for build dependencies.
 
-If you want to build on your development machine you can simply run `build.ps1`.  It produces the executable file `target/release/scanner_3d`. By default it builds for Debian Bookworm, change the base docker image in `docker/Dockerfile` if your Raspberry Pi OS is not based on Bookworm.
+If you want to build on your development machine you can simply run `build.ps1`.  It produces the executable file `target/release/server`. By default it builds for Debian Bookworm, change the base docker image in `docker/Dockerfile` if your Raspberry Pi OS is not based on Bookworm.
 
 ### UI
 
