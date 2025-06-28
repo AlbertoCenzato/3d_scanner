@@ -20,7 +20,7 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         
     - name: Build server
-      run: cargo build --no-default-features --bin scanner_3d
+      run: cargo build --no-default-features --bin server
 
   rerun-support:
     runs-on: ubuntu-22.04
@@ -35,7 +35,7 @@ jobs:
         key: ${{ runner.os }}-cargo-rerun-${{ hashFiles('**/Cargo.lock') }}
         
     - name: Build with Rerun support
-      run: cargo build --no-default-features --features rerun --bin scanner_3d
+      run: cargo build --no-default-features --features rerun --bin server
 
   ui:
     runs-on: ubuntu-22.04
