@@ -5,7 +5,6 @@ use crate::motor;
 
 use msg::response::Response;
 use std::sync::mpsc;
-use websocket::sync::Writer;
 
 pub struct Scanner {
     data_logger: Box<dyn logging::Logger>,

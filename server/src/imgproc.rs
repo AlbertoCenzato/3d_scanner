@@ -3,6 +3,7 @@ use crate::calibration::LaserCalib;
 use crate::logging;
 use crate::motor::StepperMotor;
 use anyhow::Result;
+use log::{error, info, warn};
 
 const LOW_THRESHOLD: u8 = 30;
 
@@ -21,7 +22,7 @@ pub fn process_image(
         image::DynamicImage::ImageLuma8(image.clone()),
     );
     if let Err(e) = res {
-        println!("Failed to log image to logger: {e}");
+        warn!("Failed to log image to logger: {e}");
     }
 
     //let transform = glam::Affine3A::from_rotation_z(angle_per_step);
@@ -29,16 +30,22 @@ pub fn process_image(
     //    *point = transform.transform_point3(*point);
     //}
 
-    let new_points = triangulate(&image, &calib);
+    let mut new_points = triangulate(&image, &calib);
     //rec.log_points("world/points_3d_cam", &new_points)?;
     //point_cloud.append(&mut new_points);
     //rec.log_points("world/points_3d_world", &point_cloud)?;
     //Ok(())
+
+    let transform = glam::Affine3A::from_rotation_z(-(i as f32) * angle_per_step);
+    for point in &mut new_points {
+        *point = transform.transform_point3(*point);
+    }
+
     return new_points;
 }
 
 fn triangulate(image: &image::GrayImage, calib: &calibration::Calibration) -> Vec<glam::Vec3> {
-    println!("Image info: dimensions {:?}", image.dimensions(),);
+    info!("Image info: dimensions {:?}", image.dimensions(),);
 
     let width = image.width() as f32;
     let height = image.height() as f32;

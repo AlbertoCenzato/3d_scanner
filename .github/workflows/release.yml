@@ -32,7 +32,7 @@ jobs:
     - name: Build server
       run: |
         rustup default stable
-        cargo build --release --bin scanner_3d
+        cargo build --release --bin server
  
     # upload the binary to the release page
     - name: Create Release

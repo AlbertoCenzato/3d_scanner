@@ -3,6 +3,7 @@ use crate::imgproc;
 use crate::logging;
 use crate::motor;
 use anyhow::Result;
+use log::{error, info, warn};
 use msg::response;
 use msg::response::PointCloud;
 use msg::response::Response;
@@ -150,7 +151,7 @@ pub mod real_camera {
             let cam = cameras.get(0).ok_or(CameraError::CameraNotFound)?;
 
             let camera_model = cam.properties().get::<properties::Model>()?;
-            println!("Using camera: {}", *camera_model);
+            info!("Using camera: {}", *camera_model);
 
             let mut cam = cam.acquire()?;
 
@@ -159,12 +160,12 @@ pub mod real_camera {
                 .generate_configuration(&[StreamRole::StillCapture])
                 .ok_or(CameraError::WrongCameraConfig)?;
 
-            println!("Generated config: {:#?}", cfgs);
+            info!("Generated config: {:#?}", cfgs);
 
             match cfgs.validate() {
-                CameraConfigurationStatus::Valid => println!("Camera configuration valid!"),
+                CameraConfigurationStatus::Valid => info!("Camera configuration valid!"),
                 CameraConfigurationStatus::Adjusted => {
-                    println!("Camera configuration was adjusted: {:#?}", cfgs)
+                    info!("Camera configuration was adjusted: {:#?}", cfgs)
                 }
                 CameraConfigurationStatus::Invalid => {
                     return Err(CameraError::WrongCameraConfig.into());
@@ -184,12 +185,12 @@ pub mod real_camera {
             //});
             cfg.set_buffer_count(self.num_buffers);
             let pixel_format = cfg.get_pixel_format();
-            println!("Pixel format: {:?}", pixel_format);
+            info!("Pixel format: {:?}", pixel_format);
 
             let frame_size = cfg.get_size();
             let stream = cfg.stream().ok_or(CameraError::WrongCameraConfig)?;
             let buffers = alloc.alloc(&stream)?;
-            println!("Allocated {} buffers", buffers.len());
+            info!("Allocated {} buffers", buffers.len());
 
             // Convert FrameBuffer to MemoryMappedFrameBuffer, which allows reading &[u8]
             let buffers = buffers
@@ -221,9 +222,9 @@ pub mod real_camera {
             let angle_per_step = 5_f32.to_radians();
             let steps = (2_f32 * PI / angle_per_step).ceil() as i32;
             for i in 0..steps {
-                println!("Acquiring image {}", i);
+                info!("Acquiring image {}", i);
                 let image = get_image(&cam, &stream, &frame_size, &mut reqs, &rx)?;
-                println!("Processing image {}", i);
+                info!("Processing image {}", i);
                 imgproc::process_image(
                     &image,
                     i as i64,
@@ -258,14 +259,14 @@ pub mod real_camera {
         let req = requests.pop().ok_or(CameraError::InvalidRequest)?;
         camera.queue_request(req).unwrap();
 
-        println!("Waiting for camera request execution");
+        info!("Waiting for camera request execution");
         let mut req = rx.recv_timeout(Duration::from_secs(2))?;
-        println!("Camera request {:?} completed!", req);
-        println!("Metadata: {:#?}", req.metadata());
+        info!("Camera request {:?} completed!", req);
+        info!("Metadata: {:#?}", req.metadata());
         // Get framebuffer for our stream
         let framebuffer: &MemoryMappedFrameBuffer<FrameBuffer> =
             req.buffer(&stream).ok_or(CameraError::InvalidRequest)?;
-        println!("FrameBuffer metadata: {:#?}", framebuffer.metadata());
+        info!("FrameBuffer metadata: {:#?}", framebuffer.metadata());
 
         // grayscale image encoded in first image plane
         let planes = framebuffer.data();

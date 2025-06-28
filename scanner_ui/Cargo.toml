@@ -17,18 +17,17 @@ eframe = { version = "0.31.1", default-features = false, features = [
     "wgpu",          # Use the wgpu rendering backend. Alternative: "glow".
     "persistence",   # Enable restoring app state when restarting the app.
 ] }
+egui_plot = "0.32.1"
+
 log = "0.4"
 
-web-sys = { version = ">= 0.3.4", features = ["WebSocket", "MessageEvent"] }
-# You only need serde if you want app persistence:
-serde = { version = "1", features = ["derive"] }
-serde_json = "1.0.128"
+web-sys = { version = "0.3.4", features = ["WebSocket", "MessageEvent"] }
+serde_json = "1.0.140"
 anyhow = "1.0.89"
 wasm-bindgen = "0.2.93"
-glam = { version = "0.22.0", features = [
-    "serde",
-] } # same version as in rerun 0.16.1
-egui_plot = "0.32.1"
+glam = { version = "0.28.0", features = ["serde"] }
+wgpu = { version = "24.0.3", features = ["webgpu"], default-features = false }
+bytemuck = "1.22.0"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

@@ -3,7 +3,7 @@ pub static DEFAULT_SERVER_PORT: &str = "12345";
 pub mod command {
     use serde;
 
-    #[derive(serde::Deserialize, serde::Serialize)]
+    #[derive(serde::Deserialize, serde::Serialize, Debug)]
     pub enum Command {
         Status,
         Replay,
@@ -16,7 +16,7 @@ pub mod response {
     #[derive(serde::Deserialize, serde::Serialize)]
     pub enum Response {
         Ok,
-        Error,
+        Error(String),
         Close,
         Status(Status),
         PointCloud(PointCloud),

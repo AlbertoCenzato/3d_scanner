@@ -1,7 +1,8 @@
+use crate::draw;
+use crate::render_ctx::{Point, RenderCtx};
 use msg;
 
-use egui_plot::{Plot, PlotPoints, Points};
-use glam::Vec3;
+use glam::{Mat4, Vec3};
 use serde_json;
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -9,8 +10,10 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
+use wgpu;
+use wgpu::util::DeviceExt;
 
-static SERVER_IP: &str = "192.168.1.12";
+static SERVER_IP: &str = "192.168.1.9";
 
 struct Connection {
     ws: WebSocket,
@@ -84,6 +87,9 @@ pub struct App {
     connection: Option<Connection>,
     status: msg::response::Status,
     points: Vec<glam::Vec3>,
+    render_ctx: Option<RenderCtx>,
+    time_s: f32,
+    freerun: bool,
 }
 
 impl App {
@@ -109,6 +115,9 @@ impl App {
                 motor_speed: 0_f32,
             },
             points: Vec::new(),
+            render_ctx: None,
+            time_s: 0.0,
+            freerun: false,
         }
     }
 }
@@ -132,7 +141,69 @@ impl eframe::App for App {
     //}
 
     /// Called each time the UI needs repainting, which may be many times per second.
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.time_s += 0.01;
+        let mut gpu_name = "Unknown GPU".to_string();
+        if let Some(wgpu_state) = frame.wgpu_render_state() {
+            let info = &wgpu_state.adapter;
+            gpu_name = format!("{:?}", info);
+            let device = &wgpu_state.device;
+
+            if self.render_ctx.is_none() {
+                log::info!("Setting up render pipeline");
+                let mut render_ctx = RenderCtx::new(device);
+                let mut renderer = wgpu_state.renderer.write();
+                let texture_id = renderer.register_native_texture(
+                    device,
+                    &render_ctx.texture_view,
+                    wgpu::FilterMode::Linear,
+                );
+                log::info!("Render pipeline setup complete!");
+                render_ctx.texture_id = Some(texture_id);
+                self.render_ctx = Some(render_ctx);
+            }
+
+            //if self.points.len() > 0 {
+            let mut points = self
+                .points
+                .iter()
+                .map(|p| 10_f32 * *p)
+                .collect::<Vec<glam::Vec3>>();
+            draw::axis(&mut points);
+
+            let point_data: Vec<Point> = points.iter().map(|p| Point::new(p)).collect();
+
+            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Point Cloud Vertex Buffer"),
+                contents: bytemuck::cast_slice(&point_data),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+            let ctx = self.render_ctx.as_mut().unwrap();
+
+            let camera_matrix = ctx.camera_projection * ctx.camera_position;
+            let view_proj_std140: [f32; 16] = camera_matrix.to_cols_array();
+
+            let queue = &wgpu_state.queue;
+            queue.write_buffer(
+                &ctx.camera_staging_buffer,
+                0,
+                bytemuck::cast_slice(&view_proj_std140),
+            );
+
+            log::info!("Rendering...");
+            let command_buffer = ctx.render(&device, &vertex_buffer, point_data.len() as u32);
+
+            log::info!("Submitting command buffer...");
+            queue.submit(std::iter::once(command_buffer));
+            vertex_buffer.destroy();
+
+            //log::info!("Updating camera position: {:?}", self.camera_position);
+            //ctx.update_camera_position(self.camera_position.clone());
+            //
+            //device.poll(wgpu::Maintain::Poll);
+        }
+
         if self.connection.is_none() {
             let port = msg::DEFAULT_SERVER_PORT;
             let url = format!("ws://{SERVER_IP}:{port}");
@@ -172,8 +243,8 @@ impl eframe::App for App {
                         msg::response::Response::Ok => {
                             log::info!("Received OK");
                         }
-                        msg::response::Response::Error => {
-                            log::info!("Received Error");
+                        msg::response::Response::Error(e) => {
+                            log::info!("Received Error: {e}");
                         }
                         msg::response::Response::Close => {
                             log::info!("Received Close");
@@ -182,8 +253,8 @@ impl eframe::App for App {
                         msg::response::Response::Status(status) => {
                             self.status = status;
                         }
-                        msg::response::Response::PointCloud(pc) => {
-                            self.points = pc.points;
+                        msg::response::Response::PointCloud(mut pc) => {
+                            self.points.append(&mut pc.points);
                             log::info!("Received PointCloud");
                         }
                     },
@@ -218,10 +289,57 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
             ui.heading("3D Scanner");
+            ui.label(format!("GPU: {gpu_name}"));
             let state_str = to_string(state);
             ui.label(format!("Connection state {state_str}"));
 
             ui.separator();
+
+            ui.checkbox(&mut self.freerun, "Freerun");
+
+            const ROTATION_SPEED: f32 = 0.1;
+            let mut rot_vec = Vec3::X;
+            let mut direction = 0_f32;
+
+            ui.horizontal(|ui| {
+                ui.label("X");
+                if ui.button("-").is_pointer_button_down_on() {
+                    rot_vec = Vec3::X;
+                    direction = -1.0;
+                }
+                if ui.button("+").is_pointer_button_down_on() {
+                    rot_vec = Vec3::X;
+                    direction = 1.0;
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Y");
+                if ui.button("-").is_pointer_button_down_on() {
+                    rot_vec = Vec3::Y;
+                    direction = -1.0;
+                }
+                if ui.button("+").is_pointer_button_down_on() {
+                    rot_vec = Vec3::Y;
+                    direction = 1.0;
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Z");
+                if ui.button("-").is_pointer_button_down_on() {
+                    rot_vec = Vec3::Z;
+                    direction = -1.0;
+                }
+                if ui.button("+").is_pointer_button_down_on() {
+                    rot_vec = Vec3::Z;
+                    direction = 1.0;
+                }
+            });
+
+            if let Some(ctx) = self.render_ctx.as_mut() {
+                let step = direction * ROTATION_SPEED;
+                let q = glam::Quat::from_axis_angle(rot_vec, step);
+                ctx.camera_position = ctx.camera_position * Mat4::from_quat(q);
+            }
 
             let status_button = ui.button("Get Status");
             if status_button.clicked() {
@@ -255,28 +373,18 @@ impl eframe::App for App {
 
             ui.separator();
 
+            let label = match self.render_ctx {
+                Some(_) => "Some",
+                None => "None",
+            };
+            ui.label(format!("Rendering pipeline context: {}", label));
+
+            ui.separator();
+
             ui.label("Point cloud:");
-            if !self.points.is_empty() {
-                let plot_points: PlotPoints = self
-                    .points
-                    .iter()
-                    .map(|v| [v.x as f64, v.y as f64]) // project to XY plane
-                    .collect::<Vec<[f64; 2]>>()
-                    .into();
 
-                let points = Points::new("Points", plot_points).radius(2.0);
-
-                Plot::new("point_cloud_plot")
-                    .view_aspect(1.0)
-                    .show_axes([true, true])
-                    .show(ui, |plot_ui| {
-                        plot_ui.points(points);
-                    });
-            } else {
-                ui.label("No points received yet");
-            }
-
-            //let laser = ui.checkbox(checked, text);
+            let ctx = self.render_ctx.as_mut().unwrap();
+            ui.image((ctx.texture_id.unwrap(), egui::Vec2::new(800.0, 600.0)));
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 powered_by_egui_and_eframe(ui);
@@ -284,7 +392,9 @@ impl eframe::App for App {
             });
         });
 
-        ctx.request_repaint(); // triggers a repaint as soon as possible
+        if self.freerun {
+            ctx.request_repaint(); // triggers a repaint as soon as possible
+        }
     }
 }
 

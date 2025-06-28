@@ -10,6 +10,8 @@ use motor::make_stepper_motor;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use env_logger;
+use log::{error, info, warn};
 use msg::DEFAULT_SERVER_PORT;
 use std::path::PathBuf;
 
@@ -38,16 +40,18 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
+    env_logger::init(); // Initialize the logger
+
     let args = Cli::parse();
 
     let mut motor = make_stepper_motor()?;
-    println!("Initialized {}", motor.name());
+    info!("Initialized {}", motor.name());
 
     match args.cmd {
         Commands::Motor { degrees } => {
             let steps_per_rev = motor.steps_per_rev();
             let steps = (degrees / 360_f32 * steps_per_rev) as u32;
-            println!("Moving motor {} degrees, {} steps", degrees, steps);
+            info!("Moving motor {} degrees, {} steps", degrees, steps);
             motor.step(steps);
         }
         Commands::Run {
@@ -64,13 +68,15 @@ fn main() -> Result<()> {
 
             let reurn_server_address =
                 std::net::SocketAddr::new(std::net::IpAddr::V4(rerun_ip), rerun_port);
-            println!("Initializing scanner...");
+            info!("Initializing scanner...");
             let mut scanner =
                 scanner::Scanner::new(camera_type, reurn_server_address, &calibration)?;
 
             server::run_websocket_server(port, &mut scanner)?;
         }
     }
+
+    info!("Bye.");
 
     Ok(())
 }
