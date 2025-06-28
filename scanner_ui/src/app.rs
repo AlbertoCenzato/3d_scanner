@@ -243,8 +243,8 @@ impl eframe::App for App {
                         msg::response::Response::Ok => {
                             log::info!("Received OK");
                         }
-                        msg::response::Response::Error => {
-                            log::info!("Received Error");
+                        msg::response::Response::Error(e) => {
+                            log::info!("Received Error: {e}");
                         }
                         msg::response::Response::Close => {
                             log::info!("Received Close");

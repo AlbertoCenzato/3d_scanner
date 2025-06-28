@@ -1,4 +1,7 @@
+use std::io::Read;
+
 use anyhow::Result;
+use image::buffer;
 use serde::{Deserialize, Serialize};
 use serde_json;
 
@@ -73,12 +76,19 @@ pub struct Calibration {
 }
 
 fn decorate_with_path(e: std::io::Error, path: &std::path::Path) -> std::io::Error {
-    return std::io::Error::new(e.kind(), format!("{}: {}", path.display(), e));
+    let p = path.display();
+    return std::io::Error::new(e.kind(), format!("{p}: {e}"));
 }
 
 pub fn load_calibration(path: &std::path::Path) -> Result<Calibration> {
     let file = std::fs::File::open(path).map_err(|e| decorate_with_path(e, path))?;
-    let reader = std::io::BufReader::new(file);
-    let json: Calibration = serde_json::from_reader(reader)?;
-    return Ok(json);
+    let mut reader = std::io::BufReader::new(file);
+
+    let mut buffer = String::new();
+    reader
+        .read_to_string(&mut buffer)
+        .map_err(|e| decorate_with_path(e, path))?;
+
+    let calibration = serde_json::from_str(&buffer)?;
+    return Ok(calibration);
 }
