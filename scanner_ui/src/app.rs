@@ -3,13 +3,13 @@ use crate::render_ctx::{Point, RenderCtx};
 use msg;
 
 use glam::{Mat4, Vec3};
-use serde_json;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
+
 use wgpu;
 use wgpu::util::DeviceExt;
 
@@ -24,18 +24,25 @@ impl Connection {
     fn new(url: &str) -> anyhow::Result<Self> {
         let ws = WebSocket::new(url)
             .map_err(|e| anyhow::Error::msg(format!("Failed to create WebSocket: {e:?}")))?;
+
+        // NOTE(alberto): we use ArrayBuffer to receive binary data
+        ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
+
         let incoming_msg_queue = Rc::new(RefCell::new(VecDeque::<String>::new()));
         let tx = incoming_msg_queue.clone();
 
         // Callback to handle incoming WebSocket messages
         let onmessage_callback = Closure::<dyn FnMut(MessageEvent)>::new(move |e: MessageEvent| {
             log::info!("onmessage_callback");
-            match e.data().as_string() {
-                Some(txt) => {
-                    log::info!("Received message {txt}");
-                    tx.borrow_mut().push_back(txt)
-                }
-                None => log::error!("Failed to convert message to string"),
+            if let Ok(buffer) = e.data().dyn_into::<web_sys::js_sys::ArrayBuffer>() {
+                log::info!("Received binary message {buffer:?}");
+                //tx.borrow_mut().push_back(txt);
+            } else if let Ok(text) = e.data().dyn_into::<web_sys::js_sys::JsString>() {
+                let txt = text.into();
+                log::info!("Received text message {txt}");
+                tx.borrow_mut().push_back(txt);
+            } else {
+                log::error!("Received unsupported message type");
             }
         });
         ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
@@ -66,7 +73,7 @@ impl Connection {
     }
 
     fn send_message(&self, message: msg::command::Command) -> anyhow::Result<()> {
-        let json_message = serde_json::to_string(&message)?;
+        let json_message = message.to_text();
         // TODO(alberto): handle errors
         self.ws.send_with_str(&json_message).unwrap();
         Ok(())
@@ -77,7 +84,7 @@ impl Connection {
             .incoming_msg_queue
             .borrow_mut()
             .pop_front()
-            .map(|msg| serde_json::from_str(&msg))
+            .map(|msg| msg::response::Response::from_text(&msg))
             .transpose()?;
         Ok(opt_response)
     }
@@ -163,7 +170,6 @@ impl eframe::App for App {
                 self.render_ctx = Some(render_ctx);
             }
 
-            //if self.points.len() > 0 {
             let mut points = self
                 .points
                 .iter()

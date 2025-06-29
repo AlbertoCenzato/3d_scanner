@@ -2736,8 +2736,10 @@ name = "msg"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "glam 0.28.0",
+ "glam",
+ "log",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4715,7 +4717,6 @@ dependencies = [
  "glam 0.28.0",
  "log",
  "msg",
- "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
