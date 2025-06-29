@@ -17,7 +17,7 @@ static SERVER_IP: &str = "192.168.1.9";
 
 struct Connection {
     ws: WebSocket,
-    incoming_msg_queue: Rc<RefCell<VecDeque<String>>>,
+    incoming_msg_queue: Rc<RefCell<VecDeque<web_sys::js_sys::ArrayBuffer>>>,
 }
 
 impl Connection {
@@ -28,19 +28,18 @@ impl Connection {
         // NOTE(alberto): we use ArrayBuffer to receive binary data
         ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
 
-        let incoming_msg_queue = Rc::new(RefCell::new(VecDeque::<String>::new()));
+        let incoming_msg_queue =
+            Rc::new(RefCell::new(VecDeque::<web_sys::js_sys::ArrayBuffer>::new()));
         let tx = incoming_msg_queue.clone();
 
         // Callback to handle incoming WebSocket messages
         let onmessage_callback = Closure::<dyn FnMut(MessageEvent)>::new(move |e: MessageEvent| {
             log::info!("onmessage_callback");
             if let Ok(buffer) = e.data().dyn_into::<web_sys::js_sys::ArrayBuffer>() {
-                log::info!("Received binary message {buffer:?}");
-                //tx.borrow_mut().push_back(txt);
+                log::info!("Received binary message ({}bytes)", buffer.byte_length());
+                tx.borrow_mut().push_back(buffer);
             } else if let Ok(text) = e.data().dyn_into::<web_sys::js_sys::JsString>() {
-                let txt = text.into();
-                log::info!("Received text message {txt}");
-                tx.borrow_mut().push_back(txt);
+                log::error!("Text messages are not supported. Received text message {text}");
             } else {
                 log::error!("Received unsupported message type");
             }
@@ -73,9 +72,9 @@ impl Connection {
     }
 
     fn send_message(&self, message: msg::command::Command) -> anyhow::Result<()> {
-        let json_message = message.to_text();
+        let binary_message = message.to_bytes();
         // TODO(alberto): handle errors
-        self.ws.send_with_str(&json_message).unwrap();
+        self.ws.send_with_u8_array(&binary_message).unwrap();
         Ok(())
     }
 
@@ -84,7 +83,12 @@ impl Connection {
             .incoming_msg_queue
             .borrow_mut()
             .pop_front()
-            .map(|msg| msg::response::Response::from_text(&msg))
+            .map(|msg| {
+                let array = web_sys::js_sys::Uint8Array::new(&msg);
+                let mut data = vec![0u8; array.length() as usize];
+                array.copy_to(&mut data);
+                msg::response::Response::from_bytes(&data)
+            })
             .transpose()?;
         Ok(opt_response)
     }
