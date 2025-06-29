@@ -2655,6 +2655,7 @@ dependencies = [
  "anyhow",
  "glam",
  "log",
+ "rmp-serde",
  "serde",
  "serde_json",
 ]
