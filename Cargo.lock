@@ -2654,7 +2654,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "glam",
+ "log",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4509,7 +4511,6 @@ dependencies = [
  "glam",
  "log",
  "msg",
- "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
