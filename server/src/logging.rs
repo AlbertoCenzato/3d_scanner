@@ -14,7 +14,7 @@ pub trait Logger {
 }
 
 #[allow(unused)]
-pub fn make_logger(logger_name: &str, address: std::net::SocketAddr) -> Result<Box<dyn Logger>> {
+pub fn make_logger(logger_name: &str, address: String) -> Result<Box<dyn Logger>> {
     #[cfg(feature = "rerun")]
     let logger: Box<dyn Logger> = Box::new(rerun::RerunLogger::new(&logger_name, address)?);
     #[cfg(not(feature = "rerun"))]
@@ -26,18 +26,37 @@ pub fn make_logger(logger_name: &str, address: std::net::SocketAddr) -> Result<B
 pub mod rerun {
     use super::*;
     use ::rerun;
+    use glam;
+    use rerun::components::Translation3D;
 
     const AXIS_SIZE: f32 = 0.1_f32;
+
+    fn to_translation_3d(v: &glam::Vec3) -> Translation3D {
+        Translation3D::new(v.x, v.y, v.z)
+    }
+
+    fn to_position_3d(v: &glam::Vec3) -> rerun::Position3D {
+        rerun::Position3D::new(v.x, v.y, v.z)
+    }
+
+    fn to_rerun_quat(q: &glam::Quat) -> rerun::external::glam::Quat {
+        rerun::external::glam::quat(q.x, q.y, q.z, q.w)
+    }
+
+    fn to_points_3d(points: &[glam::Vec3]) -> rerun::Points3D {
+        let positions = points.into_iter().map(|v| to_position_3d(v));
+        rerun::Points3D::new(positions)
+    }
 
     pub struct RerunLogger {
         pub rec: rerun::RecordingStream,
     }
 
     impl RerunLogger {
-        pub fn new(name: &str, address: std::net::SocketAddr) -> Result<RerunLogger> {
-            let connection_timeout = Some(std::time::Duration::from_secs(1));
+        pub fn new(name: &str, address: String) -> Result<RerunLogger> {
+            let flush_timeout = Some(std::time::Duration::from_secs(1));
             let rec = rerun::RecordingStreamBuilder::new(name)
-                .connect_opts(address, connection_timeout)?;
+                .connect_grpc_opts(address, flush_timeout)?;
             log_world_reference_system(&rec)?;
             return Ok(RerunLogger { rec });
         }
@@ -46,6 +65,8 @@ pub mod rerun {
     impl Logger for RerunLogger {
         fn log_transform(&self, id: &str, transform: &Affine3A) -> Result<()> {
             let (_, rotation, translation) = transform.to_scale_rotation_translation();
+            let translation = to_translation_3d(&translation);
+            let rotation = to_rerun_quat(&rotation);
             let result = self.rec.log_static(
                 id,
                 &rerun::Transform3D::from_translation_rotation(translation, rotation),
@@ -54,7 +75,8 @@ pub mod rerun {
         }
 
         fn log_points(&self, id: &str, points: &[glam::Vec3]) -> Result<()> {
-            let result = self.rec.log(id, &rerun::Points3D::new(points.to_vec()));
+            let points = to_points_3d(points);
+            let result = self.rec.log(id, &points);
             return Ok(result?);
         }
 
@@ -89,9 +111,9 @@ pub mod rerun {
 
     fn make_axis() -> rerun::Arrows3D {
         let camera_axis = vec![
-            AXIS_SIZE * glam::Vec3::X,
-            AXIS_SIZE * glam::Vec3::Y,
-            AXIS_SIZE * glam::Vec3::Z,
+            AXIS_SIZE * rerun::external::glam::Vec3::X,
+            AXIS_SIZE * rerun::external::glam::Vec3::Y,
+            AXIS_SIZE * rerun::external::glam::Vec3::Z,
         ];
         let colors = vec![
             rerun::Color::from_rgb(255, 0, 0),

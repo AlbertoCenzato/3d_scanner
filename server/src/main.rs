@@ -29,10 +29,8 @@ enum Commands {
         calibration: PathBuf,
         #[clap(default_value = DEFAULT_SERVER_PORT)]
         port: u16,
-        #[clap(default_value = "127.0.0.1")]
-        rerun_ip: std::net::Ipv4Addr,
-        #[clap(default_value = "9876")]
-        rerun_port: u16,
+        #[clap(default_value = "rerun+http://127.0.0.1:9876/proxy")]
+        rerun_connection_string: String,
     },
     Motor {
         degrees: f32,
@@ -58,19 +56,18 @@ fn main() -> Result<()> {
             port,
             image_dir,
             calibration,
-            rerun_ip,
-            rerun_port,
+            rerun_connection_string,
         } => {
             #[cfg(feature = "camera")]
             let camera_type = cameras::CameraType::RaspberryPi;
             #[cfg(not(feature = "camera"))]
             let camera_type = cameras::CameraType::DiskLoader(image_dir.clone());
 
-            let reurn_server_address =
-                std::net::SocketAddr::new(std::net::IpAddr::V4(rerun_ip), rerun_port);
+            info!("Initializing data logger...");
+            let data_logger = logging::make_logger("Scanner3D", rerun_connection_string)?;
+
             info!("Initializing scanner...");
-            let mut scanner =
-                scanner::Scanner::new(camera_type, reurn_server_address, &calibration)?;
+            let mut scanner = scanner::Scanner::new(camera_type, data_logger, &calibration)?;
 
             server::run_websocket_server(port, &mut scanner)?;
         }
