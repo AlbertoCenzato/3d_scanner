@@ -11,7 +11,7 @@ use motor::make_stepper_motor;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use env_logger;
-use log::{error, info, warn};
+use log;
 use msg::DEFAULT_SERVER_PORT;
 use std::path::PathBuf;
 
@@ -38,18 +38,23 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    env_logger::init(); // Initialize the logger
+    // initialize logger
+    let env = env_logger::Env::default().default_filter_or("info");
+    let mut logger_builder = env_logger::Builder::from_env(env);
+    logger_builder.init();
+
+    log::info!("Starting 3D scanner server");
 
     let args = Cli::parse();
 
     let mut motor = make_stepper_motor()?;
-    info!("Initialized {}", motor.name());
+    log::info!("Initialized {}", motor.name());
 
     match args.cmd {
         Commands::Motor { degrees } => {
             let steps_per_rev = motor.steps_per_rev();
             let steps = (degrees / 360_f32 * steps_per_rev) as u32;
-            info!("Moving motor {} degrees, {} steps", degrees, steps);
+            log::info!("Moving motor {degrees} degrees, {steps} steps");
             motor.step(steps);
         }
         Commands::Run {
@@ -63,17 +68,17 @@ fn main() -> Result<()> {
             #[cfg(not(feature = "camera"))]
             let camera_type = cameras::CameraType::DiskLoader(image_dir.clone());
 
-            info!("Initializing data logger...");
+            log::info!("Initializing data logger...");
             let data_logger = logging::make_logger("Scanner3D", rerun_connection_string)?;
 
-            info!("Initializing scanner...");
+            log::info!("Initializing scanner...");
             let mut scanner = scanner::Scanner::new(camera_type, data_logger, &calibration)?;
 
             server::run_websocket_server(port, &mut scanner)?;
         }
     }
 
-    info!("Bye.");
+    log::info!("Bye.");
 
     Ok(())
 }

@@ -3,6 +3,7 @@ use crate::calibration::CameraCalib;
 use anyhow::Result;
 use glam::Affine3A;
 use image::DynamicImage;
+use log;
 use std::cfg;
 
 pub trait Logger {
@@ -55,6 +56,7 @@ pub mod rerun {
     impl RerunLogger {
         pub fn new(name: &str, address: String) -> Result<RerunLogger> {
             let flush_timeout = Some(std::time::Duration::from_secs(1));
+            log::info!("Connecting to Rerun at {address}");
             let rec = rerun::RecordingStreamBuilder::new(name)
                 .connect_grpc_opts(address, flush_timeout)?;
             log_world_reference_system(&rec)?;
