@@ -29,4 +29,5 @@ jobs:
         
     - name: Build server
       run: |
-        cargo build --bin server
+        cargo version
+        cargo build --bin server --locked
