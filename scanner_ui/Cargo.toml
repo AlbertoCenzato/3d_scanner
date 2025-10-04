@@ -19,7 +19,7 @@ eframe = { version = "0.31.1", default-features = false, features = [
 ] }
 egui_plot = "0.32.1"
 
-log = "0.4"
+log = "0.4.28"
 
 web-sys = { version = "0.3.4", features = [
     "WebSocket",
@@ -28,13 +28,13 @@ web-sys = { version = "0.3.4", features = [
 ] }
 anyhow = "1.0.89"
 wasm-bindgen = "0.2.93"
-glam = { version = "0.28.0", features = ["serde"] }
+glam = { version = ">=0.28.0", features = ["serde"] }
 wgpu = { version = "24.0.3", features = ["webgpu"], default-features = false }
 bytemuck = "1.22.0"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-env_logger = "0.10"
+env_logger = "0.11.8"
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
