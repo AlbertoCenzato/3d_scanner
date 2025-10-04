@@ -11,6 +11,17 @@ The scanner's software is composed of two parts:
 
 ## Build
 
+### Docker
+
+We provide a docker container to build the server into. 
+To build the container run:
+
+```shell
+docker build -t ghcr.io/albertocenzato/scanner-3d-dev:1.4 --platform "linux/arm64" .
+```
+
+Or simply create and push a git tag e.g. `docker/v1.1`
+
 ### Server
 
 To start the server:

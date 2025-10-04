@@ -11,7 +11,7 @@ use motor::make_stepper_motor;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use env_logger;
-use log::{error, info, warn};
+use log;
 use msg::DEFAULT_SERVER_PORT;
 use std::path::PathBuf;
 
@@ -29,10 +29,8 @@ enum Commands {
         calibration: PathBuf,
         #[clap(default_value = DEFAULT_SERVER_PORT)]
         port: u16,
-        #[clap(default_value = "127.0.0.1")]
-        rerun_ip: std::net::Ipv4Addr,
-        #[clap(default_value = "9876")]
-        rerun_port: u16,
+        #[clap(default_value = "rerun+http://127.0.0.1:9876/proxy")]
+        rerun_connection_string: String,
     },
     Motor {
         degrees: f32,
@@ -40,43 +38,47 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    env_logger::init(); // Initialize the logger
+    // initialize logger
+    let env = env_logger::Env::default().default_filter_or("info");
+    let mut logger_builder = env_logger::Builder::from_env(env);
+    logger_builder.init();
+
+    log::info!("Starting 3D scanner server");
 
     let args = Cli::parse();
 
     let mut motor = make_stepper_motor()?;
-    info!("Initialized {}", motor.name());
+    log::info!("Initialized {}", motor.name());
 
     match args.cmd {
         Commands::Motor { degrees } => {
             let steps_per_rev = motor.steps_per_rev();
             let steps = (degrees / 360_f32 * steps_per_rev) as u32;
-            info!("Moving motor {} degrees, {} steps", degrees, steps);
+            log::info!("Moving motor {degrees} degrees, {steps} steps");
             motor.step(steps);
         }
         Commands::Run {
             port,
             image_dir,
             calibration,
-            rerun_ip,
-            rerun_port,
+            rerun_connection_string,
         } => {
             #[cfg(feature = "camera")]
             let camera_type = cameras::CameraType::RaspberryPi;
             #[cfg(not(feature = "camera"))]
             let camera_type = cameras::CameraType::DiskLoader(image_dir.clone());
 
-            let reurn_server_address =
-                std::net::SocketAddr::new(std::net::IpAddr::V4(rerun_ip), rerun_port);
-            info!("Initializing scanner...");
-            let mut scanner =
-                scanner::Scanner::new(camera_type, reurn_server_address, &calibration)?;
+            log::info!("Initializing data logger...");
+            let data_logger = logging::make_logger("Scanner3D", rerun_connection_string)?;
+
+            log::info!("Initializing scanner...");
+            let mut scanner = scanner::Scanner::new(camera_type, data_logger, &calibration)?;
 
             server::run_websocket_server(port, &mut scanner)?;
         }
     }
 
-    info!("Bye.");
+    log::info!("Bye.");
 
     Ok(())
 }

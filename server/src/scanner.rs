@@ -1,6 +1,7 @@
 use crate::calibration;
 use crate::cameras;
 use crate::logging;
+use crate::logging::Logger;
 use crate::motor;
 
 use msg::response::Response;
@@ -19,10 +20,9 @@ pub struct Scanner {
 impl Scanner {
     pub fn new(
         camera_type: cameras::CameraType,
-        data_logger_address: std::net::SocketAddr,
+        data_logger: Box<dyn Logger>,
         calibration_path: &std::path::Path,
     ) -> anyhow::Result<Self> {
-        let data_logger = logging::make_logger("data_logger", data_logger_address)?;
         let motor = motor::make_stepper_motor()?;
         let camera = cameras::make_camera(camera_type)?;
         let calibration = calibration::load_calibration(&calibration_path)?;
