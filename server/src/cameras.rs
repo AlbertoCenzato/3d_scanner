@@ -40,13 +40,17 @@ pub trait Camera {
     fn acquire_from_camera(
         &mut self,
         rec: &dyn logging::Logger,
-        calib: &calibration::Calibration,
         motor: &mut dyn motor::StepperMotor,
         scanned_data_queue: mpsc::Sender<Response>,
-    ) -> Result<Vec<glam::Vec3>>;
+    ) -> Result<()>;
+
+    fn calibration(&self) -> &calibration::Calibration;
 }
 
-pub fn make_camera(camera_type: CameraType) -> Result<Box<dyn Camera>> {
+pub fn make_camera(
+    camera_type: CameraType,
+    calibration: calibration::Calibration,
+) -> Result<Box<dyn Camera>> {
     match camera_type {
         CameraType::DiskLoader(path) => {
             let camera: Box<dyn Camera> = Box::new(DiskCamera::from_directory(&path)?);
@@ -54,14 +58,26 @@ pub fn make_camera(camera_type: CameraType) -> Result<Box<dyn Camera>> {
         }
         #[cfg(feature = "camera")]
         CameraType::RaspberryPi => {
-            let camera: Box<dyn Camera> = Box::new(real_camera::PiCamera { num_buffers: 5 });
+            let camera: Box<dyn Camera> = Box::new(real_camera::PiCamera {
+                num_buffers: 5,
+                calibration,
+            });
             return Ok(camera);
         }
     }
 }
 
 pub struct DiskCamera {
-    iter: IntoIter<PathBuf>,
+    images_paths: IntoIter<PathBuf>,
+    calibration: calibration::Calibration,
+}
+
+fn is_img_path(path: &Path) -> bool {
+    if let Some(ext) = path.extension() {
+        let ext = ext.to_string_lossy().to_lowercase();
+        return ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "bmp";
+    }
+    return false;
 }
 
 impl DiskCamera {
@@ -72,14 +88,18 @@ impl DiskCamera {
                 Ok(entry) => Some(entry.path()),
                 Err(_) => None,
             })
+            .filter(|p| is_img_path(p))
             .collect();
+        let calibration = calibration::load_calibration(&path.join("calibration.json"))
+            .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("{e}")))?;
         Ok(DiskCamera {
-            iter: images.into_iter(),
+            images_paths: images.into_iter(),
+            calibration,
         })
     }
 
     fn get_image(&mut self) -> Result<image::GrayImage> {
-        match self.iter.next() {
+        match self.images_paths.next() {
             Some(path) => Ok(image::open(path).unwrap().into_luma8()),
             None => Err(io::Error::new(io::ErrorKind::NotFound, "No more images").into()),
         }
@@ -90,23 +110,30 @@ impl Camera for DiskCamera {
     fn acquire_from_camera(
         &mut self,
         rec: &dyn logging::Logger,
-        calib: &calibration::Calibration,
         motor: &mut dyn motor::StepperMotor,
         scanned_data_queue: mpsc::Sender<Response>,
-    ) -> Result<Vec<glam::Vec3>> {
-        let mut point_cloud = Vec::<glam::Vec3>::new();
+    ) -> Result<()> {
         let angle_per_step = 5_f32.to_radians();
         let steps = (2_f32 * PI / angle_per_step).ceil() as i32;
         for i in 0..steps {
             let image = self.get_image()?;
-            let new_points =
-                imgproc::process_image(&image, i as i64, rec, angle_per_step, &calib, motor);
+            let new_points = imgproc::process_image(
+                &image,
+                i as i64,
+                rec,
+                angle_per_step,
+                &self.calibration,
+                motor,
+            );
 
             let response = PointCloud { points: new_points };
             scanned_data_queue.send(Response::PointCloud(response))?;
         }
+        return Ok(());
+    }
 
-        Ok(point_cloud)
+    fn calibration(&self) -> &calibration::Calibration {
+        return &self.calibration;
     }
 }
 
@@ -136,16 +163,16 @@ pub mod real_camera {
 
     pub struct PiCamera {
         pub num_buffers: u32,
+        pub calibration: calibration::Calibration,
     }
 
     impl Camera for PiCamera {
         fn acquire_from_camera(
             &mut self,
             rec: &dyn logging::Logger,
-            calib: &calibration::Calibration,
             motor: &mut dyn motor::StepperMotor,
             scanned_data_queue: mpsc::Sender<Response>,
-        ) -> Result<Vec<glam::Vec3>> {
+        ) -> Result<()> {
             let mngr = CameraManager::new()?;
             let cameras = mngr.cameras();
             let cam = cameras.get(0).ok_or(CameraError::CameraNotFound)?;
@@ -230,7 +257,7 @@ pub mod real_camera {
                     i as i64,
                     rec,
                     angle_per_step,
-                    &calib,
+                    &self.calibration,
                     motor,
                     &mut point_cloud,
                 )?;
@@ -245,8 +272,12 @@ pub mod real_camera {
                 std::thread::sleep(Duration::from_millis(100));
             }
 
-            Ok(point_cloud)
+            Ok(())
         }
+    }
+
+    fn calibration(&self) -> &calibration::Calibration {
+        return &self.calibration;
     }
 
     fn get_image(

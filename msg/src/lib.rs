@@ -8,6 +8,16 @@ pub mod command {
         Status,
         Replay,
     }
+
+    impl Command {
+        pub fn from_bytes(bytes: &[u8]) -> Result<Command, rmp_serde::decode::Error> {
+            rmp_serde::from_slice(bytes)
+        }
+
+        pub fn to_bytes(&self) -> Vec<u8> {
+            rmp_serde::to_vec(self).expect("Failed to serialize command")
+        }
+    }
 }
 
 pub mod response {
@@ -20,6 +30,16 @@ pub mod response {
         Close,
         Status(Status),
         PointCloud(PointCloud),
+    }
+
+    impl Response {
+        pub fn from_bytes(bytes: &[u8]) -> Result<Response, rmp_serde::decode::Error> {
+            rmp_serde::from_slice(bytes)
+        }
+
+        pub fn to_bytes(&self) -> Vec<u8> {
+            rmp_serde::to_vec(self).expect("Failed to serialize response")
+        }
     }
 
     #[derive(serde::Deserialize, serde::Serialize)]

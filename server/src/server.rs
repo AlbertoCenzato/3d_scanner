@@ -1,5 +1,6 @@
 use crate::scanner;
 use log::{error, info, warn};
+use msg::command::Command;
 use msg::response::Response;
 use std::net::{SocketAddr, TcpStream};
 use std::sync::{mpsc, Arc};
@@ -64,17 +65,8 @@ fn handle_connection(
     let sender_thread = std::thread::spawn(move || {
         info!("Sender thread started");
         for msg in outgoing_msgs {
-            let msg = match serde_json::to_string(&msg) {
-                Ok(s) => {
-                    info!("Serialized message: {s}");
-                    tungstenite::Message::text(s)
-                }
-                Err(e) => {
-                    error!("Failed to serialize message: {e}");
-                    continue;
-                }
-            };
-
+            let data = msg.to_bytes().into();
+            let msg = tungstenite::Message::Binary(data);
             let mut sender = sender.lock().unwrap();
             if let Err(e) = sender.write(msg) {
                 error!("Failed to send message: {e}");
@@ -108,17 +100,17 @@ fn handle_connection(
             }
             tungstenite::Message::Text(text) => {
                 info!("Text message received: {text}");
-                match serde_json::from_str(&text) {
+                Response::Error("Text messages are not supported".to_string())
+            }
+            tungstenite::Message::Binary(bytes) => {
+                warn!("Binary message received, not supported");
+                match Command::from_bytes(&bytes) {
                     Ok(command) => process_message(command, scanner, &send_msg),
                     Err(e) => {
                         error!("Failed to parse command: {e}");
                         Response::Error(format!("Invalid command: {e}"))
                     }
                 }
-            }
-            tungstenite::Message::Binary(_) => {
-                warn!("Binary message received, not supported");
-                Response::Error("Binary messages are not supported".to_string())
             }
             _ => {
                 warn!("Unsupported message type");
