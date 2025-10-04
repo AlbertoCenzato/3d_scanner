@@ -1,4 +1,4 @@
-$imageName = "scanner"
+$imageName = "ghcr.io/albertocenzato/scanner-3d-dev:1.4"
 $platform = "linux/arm64"
 $volume = "cargo-home-arm64"
 
