@@ -21,16 +21,7 @@ pub fn process_image(
         image::DynamicImage::ImageLuma8(image.clone()),
     );
 
-    //let transform = glam::Affine3A::from_rotation_z(angle_per_step);
-    //for point in &mut *point_cloud {
-    //    *point = transform.transform_point3(*point);
-    //}
-
     let mut new_points = triangulate(&image, &calib);
-    //rec.log_points("world/points_3d_cam", &new_points)?;
-    //point_cloud.append(&mut new_points);
-    //rec.log_points("world/points_3d_world", &point_cloud)?;
-    //Ok(())
 
     let transform = glam::Affine3A::from_rotation_z(-(i as f32) * angle_per_step);
     for point in &mut new_points {
