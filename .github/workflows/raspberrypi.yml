@@ -29,5 +29,4 @@ jobs:
         
     - name: Build server
       run: |
-        rustup default stable
         cargo build --bin server
