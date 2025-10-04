@@ -27,6 +27,8 @@ jobs:
           target
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         
+    # NOTE: theoretically cargo 1.85.1 is already installed in the docker image,
+    # but for some reason it picks up an older version, so we force install it again
     - name: Build server
       run: |
         rustup install 1.85.1
