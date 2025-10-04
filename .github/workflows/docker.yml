@@ -42,5 +42,5 @@ jobs:
           push: true
           platforms: linux/arm64
           tags: |
-            ghcr.io/${{ github.repository }}/scanner-3d-dev:latest
-            ghcr.io/${{ github.repository }}/scanner-3d-dev:${{ steps.vars.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/scanner-3d-dev:latest
+            ghcr.io/${{ github.repository_owner }}/scanner-3d-dev:${{ steps.vars.outputs.version }}
