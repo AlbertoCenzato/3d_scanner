@@ -2,6 +2,7 @@ import bpy
 import sys
 from pathlib import Path
 import json
+from math import degrees
 
 # --- Parse command line arguments ---
 argv = sys.argv
@@ -22,9 +23,9 @@ bpy.ops.wm.open_mainfile(filepath=str(blend_file))
 
 # --- Export laser and camera position ---
 target_names = {
-    "Camera",
-    "Area.001",
-    "Area.002"
+    "camera",
+    "laser_left",
+    "laser_right"
 }
 
 data = {}
@@ -35,11 +36,28 @@ for name in target_names:
         print(f"Warning: object '{name}' not found in the scene.")
         continue
 
-    data[name] = {
-        "location": list(obj.location),
-        "rotation_euler": list(obj.rotation_euler),
-        "scale": list(obj.scale)
-    }
+    obj_data = {}
+    if name == "camera" and obj.type == 'CAMERA':
+        cam_data = obj.data
+        resolution_x_px = bpy.context.scene.render.resolution_x
+        resolution_y_px = bpy.context.scene.render.resolution_y
+        sensor_width_mm = cam_data.sensor_width
+        obj_data["intrinsics"] = {
+            "focal_length_m": cam_data.lens / 1000,
+            "width_px": resolution_x_px,
+            "height_px": resolution_y_px,
+            "meters_per_px": (sensor_width_mm / resolution_x_px) / 1000
+        }
+        obj_data["extrinsics"] = {
+            "rotation_euler_deg": [degrees(a) for a in obj.rotation_euler],
+            "translation_m": list(obj.location)
+        }
+        obj_data["cam_2_img_plane_rotation_deg"] = [0.0,180.0,90.0]
+    else:
+        obj_data["translation_m"] = list(obj.location)
+        obj_data["rotation_euler_deg"] = [degrees(a) for a  in obj.rotation_euler]
+
+    data[name] = obj_data
 
 output_json.parent.mkdir(exist_ok=True)
 with output_json.open("w", encoding="utf-8") as f:
@@ -60,3 +78,4 @@ scene.cycles.samples = 64
 print(f"Rendering animation to directory: {output_dir}")
 bpy.ops.render.render(animation=True)
 print("Animation render complete.")
+
