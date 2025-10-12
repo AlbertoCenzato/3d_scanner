@@ -96,8 +96,8 @@ pub mod rerun {
                 &rerun::Pinhole::from_focal_length_and_resolution(
                     [focal, focal],
                     [
-                        camera_calibration.intrinsics.width,
-                        camera_calibration.intrinsics.height,
+                        camera_calibration.intrinsics.width_px,
+                        camera_calibration.intrinsics.height_px,
                     ],
                 )
                 .with_camera_xyz(rerun::components::ViewCoordinates::DLB),

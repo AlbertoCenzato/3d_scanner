@@ -60,11 +60,11 @@ fn triangulate(image: &image::GrayImage, calib: &calibration::Calibration) -> Ve
     let meters_per_px = calib.camera.intrinsics.meters_per_px;
     let mut right_projected_points: Vec<glam::Vec3> = right_laser_points
         .iter()
-        .map(|p| project_on_laser_plane(*p, &calib.right_laser, meters_per_px))
+        .map(|p| project_on_laser_plane(*p, &calib.laser_right, meters_per_px))
         .collect();
     let mut left_projected_points: Vec<glam::Vec3> = left_laser_points
         .iter()
-        .map(|p| project_on_laser_plane(*p, &calib.left_laser, meters_per_px))
+        .map(|p| project_on_laser_plane(*p, &calib.laser_left, meters_per_px))
         .collect();
 
     let mut points = Vec::<glam::Vec3>::new();
