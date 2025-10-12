@@ -100,8 +100,16 @@ impl DiskCamera {
 
     fn get_image(&mut self) -> Result<image::GrayImage> {
         match self.images_paths.next() {
-            Some(path) => Ok(image::open(path).unwrap().into_luma8()),
-            None => Err(io::Error::new(io::ErrorKind::NotFound, "No more images").into()),
+            Some(path) => {
+                let image = image::open(path)?;
+                let vertical_image = image.rotate90(); // rotate 90 degrees to match camera orientation
+                let grayscale_image = vertical_image.to_luma8(); // convert to grayscale
+                Ok(grayscale_image)
+            }
+            None => {
+                let error = io::Error::new(io::ErrorKind::NotFound, "No more images");
+                Err(error.into())
+            }
         }
     }
 }
