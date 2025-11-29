@@ -370,6 +370,7 @@ impl eframe::App for App {
             if start_button.clicked() {
                 log::info!("Sending start request");
                 if let Some(conn) = &c {
+                    self.points.clear();
                     let command = msg::command::Command::Replay;
                     let res = conn.send_message(command);
                     if let Err(e) = res {
