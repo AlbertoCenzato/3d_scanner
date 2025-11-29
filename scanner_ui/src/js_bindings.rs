@@ -46,26 +46,3 @@ pub fn save_streaming_file_blocking(
     let _ret = save_streaming_file_sync_js(wasm_memory, ptr, len, suggested_name);
     Ok(())
 }
-
-/// Convenience blocking helper that accepts an owned `Vec<u8>` and saves it.
-///
-/// This function boxes the Vec to obtain a stable heap allocation, calls the
-/// synchronous JS helper which reads from wasm memory immediately, then
-/// reconstructs and drops the box to free memory before returning.
-pub fn save_vec_u8_blocking(data: Vec<u8>, suggested_name: &str) -> Result<(), JsValue> {
-    let boxed: Box<[u8]> = data.into_boxed_slice();
-    let len = boxed.len() as u32;
-    let ptr = boxed.as_ptr() as usize as u32;
-
-    // We don't need to leak here because the call is synchronous and will
-    // complete before we continue. Call the sync helper directly.
-    let wasm_memory = wasm_bindgen::memory();
-    let _ = save_streaming_file_sync_js(wasm_memory, ptr, len, suggested_name);
-
-    // Reconstruct the box and drop it to free memory.
-    unsafe {
-        let _ = Box::from_raw(Box::into_raw(boxed));
-    }
-
-    Ok(())
-}

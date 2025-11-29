@@ -16,10 +16,10 @@ fn vs_main(@location(0) pos: vec3<f32>) -> VertexOutput {
     var out: VertexOutput;
 
     out.position = camera.view_proj * vec4<f32>(pos, 1.0);
-    let r = clamp(pos.x/ 3 , 0, 1);
-    let g = clamp(pos.y/ 3 , 0, 1);
-    let b = clamp(pos.z/ 3 , 0, 1);
-    out.color = vec3<f32>(r, g, b); // white
+    let r = clamp(pos.x / 3 , 0, 1);
+    let g = clamp(pos.y / 3 , 0, 1);
+    let b = clamp(pos.z / 3 , 0, 1);
+    out.color = vec3<f32>(r, g, b);
     return out;
 }
 

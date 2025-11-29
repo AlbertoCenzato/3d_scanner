@@ -3,12 +3,14 @@ use eframe::epaint;
 use glam::{Mat4, Vec3};
 use wgpu::CommandBuffer;
 
+use crate::draw;
+
 const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Point {
-    position: [f32; 3],
+    pub position: [f32; 3],
     _padding: f32, // Ensure 16-byte alignment
 }
 
@@ -17,6 +19,89 @@ impl Point {
         Point {
             position: [vec.x, vec.y, vec.z],
             _padding: 0.0,
+        }
+    }
+}
+
+struct ScreenSaver {
+    time_buffer: wgpu::Buffer,
+    time_bind_group: wgpu::BindGroup,
+    screensaver_pipeline: wgpu::RenderPipeline,
+}
+
+impl ScreenSaver {
+    fn new(device: &wgpu::Device) -> ScreenSaver {
+        let time_buffer_size = std::mem::size_of::<[f32; 1]>() as wgpu::BufferAddress;
+        let time_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Screensaver Time Buffer"),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            size: time_buffer_size,
+            mapped_at_creation: false,
+        });
+
+        let time_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("time_bind_group_layout"),
+            });
+
+        let time_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &time_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: time_buffer.as_entire_binding(),
+            }],
+            label: Some("time_bind_group"),
+        });
+
+        // Create screensaver pipeline (full-screen triangle shader)
+        let screensaver_shader =
+            device.create_shader_module(wgpu::include_wgsl!("screensaver.wgsl"));
+        let screensaver_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Screensaver Pipeline Layout"),
+                bind_group_layouts: &[&time_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+        let screensaver_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Screensaver Pipeline"),
+            layout: Some(&screensaver_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &screensaver_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[], // full-screen triangle generated in vertex shader
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &screensaver_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: TEXTURE_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        ScreenSaver {
+            time_buffer,
+            time_bind_group,
+            screensaver_pipeline,
         }
     }
 }
@@ -35,6 +120,11 @@ pub struct RenderCtx {
     depth_view: wgpu::TextureView,
     pub camera_position: Mat4,
     pub camera_projection: Mat4,
+    // Reusable vertex buffer to avoid recreating each frame
+    pub vertex_buffer: wgpu::Buffer,
+    pub vertex_capacity: u32, // number of Point entries the buffer can hold
+    axis_data: Vec<Vec3>,
+    screen_saver: ScreenSaver,
 }
 
 impl RenderCtx {
@@ -122,6 +212,20 @@ impl RenderCtx {
         });
         let depth_view = depth_texture.create_view(&Default::default());
 
+        // Create an initial vertex buffer (preallocated). We'll grow it if needed.
+        let initial_vertex_capacity: u32 = 1024; // points
+        let vb_size: wgpu::BufferAddress = (std::mem::size_of::<Point>() as wgpu::BufferAddress)
+            * initial_vertex_capacity as wgpu::BufferAddress;
+        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Vertex Buffer"),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            size: vb_size,
+            mapped_at_creation: false,
+        });
+
+        // --- Screensaver time uniform ---
+        let screen_saver = ScreenSaver::new(device);
+
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Point Cloud Pipeline"),
             layout: Some(&pipeline_layout),
@@ -179,6 +283,9 @@ impl RenderCtx {
         let far = 100.0;
         let camera_projection = Mat4::perspective_rh_gl(fovy, aspect, near, far);
 
+        let mut axis_data = Vec::new();
+        draw::axis(&mut axis_data);
+
         return RenderCtx {
             shader,
             camera_buffer_size,
@@ -193,15 +300,14 @@ impl RenderCtx {
             depth_view,
             camera_position,
             camera_projection,
+            vertex_buffer,
+            vertex_capacity: initial_vertex_capacity,
+            axis_data,
+            screen_saver,
         };
     }
 
-    pub fn render(
-        &self,
-        device: &wgpu::Device,
-        vertex_buffer: &wgpu::Buffer,
-        num_points: u32,
-    ) -> CommandBuffer {
+    pub fn render(&self, device: &wgpu::Device, num_points: u32) -> CommandBuffer {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
@@ -237,10 +343,104 @@ impl RenderCtx {
 
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, Some(&self.camera_bind_group), &[]);
-        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        render_pass.draw(0..num_points, 0..1);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+
+        let points_to_render = num_points + (self.axis_data.len() as u32);
+        render_pass.draw(0..points_to_render, 0..1);
         drop(render_pass);
 
         return encoder.finish();
+    }
+
+    /// Render the screensaver animation into the same render target.
+    pub fn render_screensaver(
+        &self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        time: f32,
+    ) -> CommandBuffer {
+        // Update time uniform
+        queue.write_buffer(
+            &self.screen_saver.time_buffer,
+            0,
+            bytemuck::cast_slice(&[time]),
+        );
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Screensaver Render Encoder"),
+        });
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Screensaver Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.texture_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        render_pass.set_pipeline(&self.screen_saver.screensaver_pipeline);
+        render_pass.set_bind_group(0, Some(&self.screen_saver.time_bind_group), &[]);
+        // full-screen triangle uses vertex_index in shader; draw 3 verts
+        render_pass.draw(0..3, 0..1);
+        drop(render_pass);
+
+        return encoder.finish();
+    }
+
+    /// Ensure the internal vertex buffer can hold at least `min_capacity` points.
+    /// If not, resize the buffer to the next power-of-two capacity >= min_capacity.
+    pub fn ensure_vertex_capacity(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        min_point_capacity: u32,
+    ) {
+        let min_capacity = min_point_capacity + (self.axis_data.len() as u32);
+        if min_capacity <= self.vertex_capacity {
+            return;
+        }
+
+        log::info!(
+            "Resizing vertex buffer from {} to at least {} points",
+            self.vertex_capacity,
+            min_capacity
+        );
+        let mut new_capacity = min_capacity.next_power_of_two();
+        if new_capacity < 1 {
+            new_capacity = 1;
+        }
+        let vb_size: wgpu::BufferAddress = (std::mem::size_of::<Point>() as wgpu::BufferAddress)
+            * new_capacity as wgpu::BufferAddress;
+        self.vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Vertex Buffer (resized)"),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            size: vb_size,
+            mapped_at_creation: false,
+        });
+        self.vertex_capacity = new_capacity;
+
+        // Upload axis data to the start of the buffer
+        let axis_data: Vec<Point> = self.axis_data.iter().map(|v| Point::new(v)).collect();
+        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&axis_data));
+    }
+
+    /// Update the vertex buffer contents from CPU memory. The buffer must have
+    /// sufficient capacity (call `ensure_vertex_capacity` before this if needed).
+    pub fn update_vertex_buffer(&self, queue: &wgpu::Queue, data: &[Point]) {
+        if data.is_empty() {
+            return;
+        }
+
+        // First part of the buffer is occupied by axis data, so we offset by that amount,
+        // we don't want to overwrite it
+        let offset = (self.axis_data.len() * std::mem::size_of::<Point>()) as wgpu::BufferAddress;
+        queue.write_buffer(&self.vertex_buffer, offset, bytemuck::cast_slice(data));
     }
 }

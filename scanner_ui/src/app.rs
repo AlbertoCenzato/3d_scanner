@@ -98,7 +98,7 @@ impl Connection {
 pub struct App {
     connection: Option<Connection>,
     status: msg::response::Status,
-    points: Vec<glam::Vec3>,
+    points: Vec<Point>,
     render_ctx: Option<RenderCtx>,
     time_s: f32,
     freerun: bool,
@@ -175,21 +175,6 @@ impl eframe::App for App {
                 self.render_ctx = Some(render_ctx);
             }
 
-            let mut points = self
-                .points
-                .iter()
-                .map(|p| 10_f32 * *p)
-                .collect::<Vec<glam::Vec3>>();
-            draw::axis(&mut points);
-
-            let point_data: Vec<Point> = points.iter().map(|p| Point::new(p)).collect();
-
-            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Point Cloud Vertex Buffer"),
-                contents: bytemuck::cast_slice(&point_data),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-
             let ctx = self.render_ctx.as_mut().unwrap();
 
             let camera_matrix = ctx.camera_projection * ctx.camera_position;
@@ -202,17 +187,22 @@ impl eframe::App for App {
                 bytemuck::cast_slice(&view_proj_std140),
             );
 
-            log::info!("Rendering...");
-            let command_buffer = ctx.render(&device, &vertex_buffer, point_data.len() as u32);
+            if self.points.is_empty() {
+                // Show screensaver animation when no point cloud present
+                let command_buffer = ctx.render_screensaver(queue, device, self.time_s);
+                queue.submit(std::iter::once(command_buffer));
+            } else {
+                // Convert points to Pod `Point` and upload
+                let num_points = self.points.len() as u32;
+                ctx.ensure_vertex_capacity(device, queue, num_points);
+                ctx.update_vertex_buffer(queue, &self.points);
 
-            log::info!("Submitting command buffer...");
-            queue.submit(std::iter::once(command_buffer));
-            vertex_buffer.destroy();
+                log::debug!("Rendering...");
+                let command_buffer = ctx.render(&device, num_points);
 
-            //log::info!("Updating camera position: {:?}", self.camera_position);
-            //ctx.update_camera_position(self.camera_position.clone());
-            //
-            //device.poll(wgpu::Maintain::Poll);
+                log::debug!("Submitting command buffer...");
+                queue.submit(std::iter::once(command_buffer));
+            }
         }
 
         if self.connection.is_none() {
@@ -264,8 +254,11 @@ impl eframe::App for App {
                         msg::response::Response::Status(status) => {
                             self.status = status;
                         }
-                        msg::response::Response::PointCloud(mut pc) => {
-                            self.points.append(&mut pc.points);
+                        msg::response::Response::PointCloud(pc) => {
+                            for p in &pc.points {
+                                let v = 10.0 * p;
+                                self.points.push(Point::new(&v));
+                            }
                             log::info!("Received PointCloud");
                         }
                     },
@@ -368,6 +361,7 @@ impl eframe::App for App {
             if start_button.clicked() {
                 log::info!("Sending start request");
                 if let Some(conn) = &c {
+                    self.points.clear();
                     let command = msg::command::Command::Replay;
                     let res = conn.send_message(command);
                     if let Err(e) = res {
