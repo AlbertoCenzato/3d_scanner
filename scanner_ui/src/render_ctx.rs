@@ -8,7 +8,7 @@ const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Point {
-    position: [f32; 3],
+    pub position: [f32; 3],
     _padding: f32, // Ensure 16-byte alignment
 }
 

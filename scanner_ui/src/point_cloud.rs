@@ -1,4 +1,4 @@
-use glam::Vec3;
+use crate::render_ctx::Point;
 
 fn ply_header(num_points: usize) -> String {
     let mut header = String::new();
@@ -12,7 +12,7 @@ fn ply_header(num_points: usize) -> String {
     header
 }
 
-pub fn ply_encode(points: &[Vec3]) -> Vec<u8> {
+pub fn ply_encode(points: &[Point]) -> Vec<u8> {
     let header = ply_header(points.len());
     let header_bytes = header.as_bytes();
     let mut ply_data = Vec::with_capacity(header_bytes.len() + points.len() * 12); // 12 bytes per point (3 * 4 bytes)
@@ -22,9 +22,9 @@ pub fn ply_encode(points: &[Vec3]) -> Vec<u8> {
 
     // Add point data
     for point in points {
-        ply_data.extend_from_slice(&point.x.to_le_bytes());
-        ply_data.extend_from_slice(&point.y.to_le_bytes());
-        ply_data.extend_from_slice(&point.z.to_le_bytes());
+        ply_data.extend_from_slice(&point.position[0].to_le_bytes());
+        ply_data.extend_from_slice(&point.position[1].to_le_bytes());
+        ply_data.extend_from_slice(&point.position[2].to_le_bytes());
     }
 
     ply_data

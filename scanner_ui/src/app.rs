@@ -98,7 +98,7 @@ impl Connection {
 pub struct App {
     connection: Option<Connection>,
     status: msg::response::Status,
-    points: Vec<glam::Vec3>,
+    points: Vec<Point>,
     render_ctx: Option<RenderCtx>,
     time_s: f32,
     freerun: bool,
@@ -175,14 +175,11 @@ impl eframe::App for App {
                 self.render_ctx = Some(render_ctx);
             }
 
-            let mut points = self
-                .points
-                .iter()
-                .map(|p| 10_f32 * *p)
-                .collect::<Vec<glam::Vec3>>();
-            draw::axis(&mut points);
+            let mut point_data = self.points.clone();
 
-            let point_data: Vec<Point> = points.iter().map(|p| Point::new(p)).collect();
+            let mut axis_data = Vec::new();
+            draw::axis(&mut axis_data);
+            point_data.extend(axis_data.into_iter().map(|p| Point::new(&p)));
 
             let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Point Cloud Vertex Buffer"),
@@ -264,8 +261,10 @@ impl eframe::App for App {
                         msg::response::Response::Status(status) => {
                             self.status = status;
                         }
-                        msg::response::Response::PointCloud(mut pc) => {
-                            self.points.append(&mut pc.points);
+                        msg::response::Response::PointCloud(pc) => {
+                            for p in &pc.points {
+                                self.points.push(Point::new(p));
+                            }
                             log::info!("Received PointCloud");
                         }
                     },
