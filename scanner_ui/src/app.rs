@@ -181,12 +181,6 @@ impl eframe::App for App {
             draw::axis(&mut axis_data);
             point_data.extend(axis_data.into_iter().map(|p| Point::new(&p)));
 
-            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Point Cloud Vertex Buffer"),
-                contents: bytemuck::cast_slice(&point_data),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-
             let ctx = self.render_ctx.as_mut().unwrap();
 
             let camera_matrix = ctx.camera_projection * ctx.camera_position;
@@ -201,13 +195,15 @@ impl eframe::App for App {
 
             let num_points = point_data.len() as u32;
             if num_points > 0 {
-                log::info!("Rendering...");
-                let command_buffer = ctx.render(&device, &vertex_buffer, num_points);
+                ctx.ensure_vertex_capacity(device, num_points);
+                ctx.update_vertex_buffer(queue, &point_data);
 
-                log::info!("Submitting command buffer...");
+                log::debug!("Rendering...");
+                let command_buffer = ctx.render(&device, num_points);
+
+                log::debug!("Submitting command buffer...");
                 queue.submit(std::iter::once(command_buffer));
             }
-            vertex_buffer.destroy();
 
             //log::info!("Updating camera position: {:?}", self.camera_position);
             //ctx.update_camera_position(self.camera_position.clone());

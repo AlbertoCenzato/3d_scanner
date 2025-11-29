@@ -35,6 +35,9 @@ pub struct RenderCtx {
     depth_view: wgpu::TextureView,
     pub camera_position: Mat4,
     pub camera_projection: Mat4,
+    // Reusable vertex buffer to avoid recreating each frame
+    pub vertex_buffer: wgpu::Buffer,
+    pub vertex_capacity: u32, // number of Point entries the buffer can hold
 }
 
 impl RenderCtx {
@@ -122,6 +125,17 @@ impl RenderCtx {
         });
         let depth_view = depth_texture.create_view(&Default::default());
 
+        // Create an initial vertex buffer (preallocated). We'll grow it if needed.
+        let initial_vertex_capacity: u32 = 1024; // points
+        let vb_size: wgpu::BufferAddress = (std::mem::size_of::<Point>() as wgpu::BufferAddress)
+            * initial_vertex_capacity as wgpu::BufferAddress;
+        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Vertex Buffer"),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            size: vb_size,
+            mapped_at_creation: false,
+        });
+
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Point Cloud Pipeline"),
             layout: Some(&pipeline_layout),
@@ -193,15 +207,12 @@ impl RenderCtx {
             depth_view,
             camera_position,
             camera_projection,
+            vertex_buffer,
+            vertex_capacity: initial_vertex_capacity,
         };
     }
 
-    pub fn render(
-        &self,
-        device: &wgpu::Device,
-        vertex_buffer: &wgpu::Buffer,
-        num_points: u32,
-    ) -> CommandBuffer {
+    pub fn render(&self, device: &wgpu::Device, num_points: u32) -> CommandBuffer {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
@@ -237,10 +248,48 @@ impl RenderCtx {
 
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, Some(&self.camera_bind_group), &[]);
-        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.draw(0..num_points, 0..1);
         drop(render_pass);
 
         return encoder.finish();
+    }
+
+    /// Ensure the internal vertex buffer can hold at least `min_capacity` points.
+    /// If not, resize the buffer to the next power-of-two capacity >= min_capacity.
+    pub fn ensure_vertex_capacity(&mut self, device: &wgpu::Device, min_capacity: u32) {
+        if min_capacity == 0 {
+            return;
+        }
+        if min_capacity > self.vertex_capacity {
+            log::info!(
+                "Resizing vertex buffer from {} to at least {} points",
+                self.vertex_capacity,
+                min_capacity
+            );
+            let mut new_capacity = min_capacity.next_power_of_two();
+            if new_capacity < 1 {
+                new_capacity = 1;
+            }
+            let vb_size: wgpu::BufferAddress = (std::mem::size_of::<Point>()
+                as wgpu::BufferAddress)
+                * new_capacity as wgpu::BufferAddress;
+            self.vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Vertex Buffer (resized)"),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                size: vb_size,
+                mapped_at_creation: false,
+            });
+            self.vertex_capacity = new_capacity;
+        }
+    }
+
+    /// Update the vertex buffer contents from CPU memory. The buffer must have
+    /// sufficient capacity (call `ensure_vertex_capacity` before this if needed).
+    pub fn update_vertex_buffer(&self, queue: &wgpu::Queue, data: &[Point]) {
+        if data.is_empty() {
+            return;
+        }
+        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(data));
     }
 }
