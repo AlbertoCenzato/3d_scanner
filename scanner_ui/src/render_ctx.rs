@@ -3,6 +3,8 @@ use eframe::epaint;
 use glam::{Mat4, Vec3};
 use wgpu::CommandBuffer;
 
+use crate::draw;
+
 const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 #[repr(C)]
@@ -38,6 +40,7 @@ pub struct RenderCtx {
     // Reusable vertex buffer to avoid recreating each frame
     pub vertex_buffer: wgpu::Buffer,
     pub vertex_capacity: u32, // number of Point entries the buffer can hold
+    axis_data: Vec<Vec3>,
 }
 
 impl RenderCtx {
@@ -193,6 +196,9 @@ impl RenderCtx {
         let far = 100.0;
         let camera_projection = Mat4::perspective_rh_gl(fovy, aspect, near, far);
 
+        let mut axis_data = Vec::new();
+        draw::axis(&mut axis_data);
+
         return RenderCtx {
             shader,
             camera_buffer_size,
@@ -209,6 +215,7 @@ impl RenderCtx {
             camera_projection,
             vertex_buffer,
             vertex_capacity: initial_vertex_capacity,
+            axis_data,
         };
     }
 
@@ -249,7 +256,9 @@ impl RenderCtx {
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, Some(&self.camera_bind_group), &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.draw(0..num_points, 0..1);
+
+        let points_to_render = num_points + (self.axis_data.len() as u32);
+        render_pass.draw(0..points_to_render, 0..1);
         drop(render_pass);
 
         return encoder.finish();
@@ -257,7 +266,13 @@ impl RenderCtx {
 
     /// Ensure the internal vertex buffer can hold at least `min_capacity` points.
     /// If not, resize the buffer to the next power-of-two capacity >= min_capacity.
-    pub fn ensure_vertex_capacity(&mut self, device: &wgpu::Device, min_capacity: u32) {
+    pub fn ensure_vertex_capacity(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        min_point_capacity: u32,
+    ) {
+        let min_capacity = min_point_capacity + (self.axis_data.len() as u32);
         if min_capacity == 0 {
             return;
         }
@@ -281,6 +296,10 @@ impl RenderCtx {
                 mapped_at_creation: false,
             });
             self.vertex_capacity = new_capacity;
+
+            // Upload axis data to the start of the buffer
+            let axis_data: Vec<Point> = self.axis_data.iter().map(|v| Point::new(v)).collect();
+            queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&axis_data));
         }
     }
 
@@ -290,6 +309,10 @@ impl RenderCtx {
         if data.is_empty() {
             return;
         }
-        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(data));
+        queue.write_buffer(
+            &self.vertex_buffer,
+            self.axis_data.len() as wgpu::BufferAddress,
+            bytemuck::cast_slice(data),
+        );
     }
 }

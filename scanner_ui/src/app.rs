@@ -175,12 +175,6 @@ impl eframe::App for App {
                 self.render_ctx = Some(render_ctx);
             }
 
-            let mut point_data = self.points.clone();
-
-            let mut axis_data = Vec::new();
-            draw::axis(&mut axis_data);
-            point_data.extend(axis_data.into_iter().map(|p| Point::new(&p)));
-
             let ctx = self.render_ctx.as_mut().unwrap();
 
             let camera_matrix = ctx.camera_projection * ctx.camera_position;
@@ -193,22 +187,15 @@ impl eframe::App for App {
                 bytemuck::cast_slice(&view_proj_std140),
             );
 
-            let num_points = point_data.len() as u32;
-            if num_points > 0 {
-                ctx.ensure_vertex_capacity(device, num_points);
-                ctx.update_vertex_buffer(queue, &point_data);
+            let num_points = self.points.len() as u32;
+            ctx.ensure_vertex_capacity(device, queue, num_points);
+            ctx.update_vertex_buffer(queue, &self.points);
 
-                log::debug!("Rendering...");
-                let command_buffer = ctx.render(&device, num_points);
+            log::debug!("Rendering...");
+            let command_buffer = ctx.render(&device, num_points);
 
-                log::debug!("Submitting command buffer...");
-                queue.submit(std::iter::once(command_buffer));
-            }
-
-            //log::info!("Updating camera position: {:?}", self.camera_position);
-            //ctx.update_camera_position(self.camera_position.clone());
-            //
-            //device.poll(wgpu::Maintain::Poll);
+            log::debug!("Submitting command buffer...");
+            queue.submit(std::iter::once(command_buffer));
         }
 
         if self.connection.is_none() {
