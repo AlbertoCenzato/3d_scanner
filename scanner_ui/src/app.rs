@@ -187,15 +187,22 @@ impl eframe::App for App {
                 bytemuck::cast_slice(&view_proj_std140),
             );
 
-            let num_points = self.points.len() as u32;
-            ctx.ensure_vertex_capacity(device, queue, num_points);
-            ctx.update_vertex_buffer(queue, &self.points);
+            if self.points.is_empty() {
+                // Show screensaver animation when no point cloud present
+                let command_buffer = ctx.render_screensaver(queue, device, self.time_s);
+                queue.submit(std::iter::once(command_buffer));
+            } else {
+                // Convert points to Pod `Point` and upload
+                let num_points = self.points.len() as u32;
+                ctx.ensure_vertex_capacity(device, queue, num_points);
+                ctx.update_vertex_buffer(queue, &self.points);
 
-            log::debug!("Rendering...");
-            let command_buffer = ctx.render(&device, num_points);
+                log::debug!("Rendering...");
+                let command_buffer = ctx.render(&device, num_points);
 
-            log::debug!("Submitting command buffer...");
-            queue.submit(std::iter::once(command_buffer));
+                log::debug!("Submitting command buffer...");
+                queue.submit(std::iter::once(command_buffer));
+            }
         }
 
         if self.connection.is_none() {
