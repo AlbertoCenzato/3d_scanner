@@ -266,7 +266,8 @@ impl eframe::App for App {
                         }
                         msg::response::Response::PointCloud(pc) => {
                             for p in &pc.points {
-                                self.points.push(Point::new(p));
+                                let v = 10.0 * p;
+                                self.points.push(Point::new(&v));
                             }
                             log::info!("Received PointCloud");
                         }
