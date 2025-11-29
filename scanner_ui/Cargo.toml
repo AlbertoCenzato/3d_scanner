@@ -21,13 +21,17 @@ egui_plot = "0.32.1"
 
 log = "0.4.28"
 
-web-sys = { version = "0.3.4", features = [
+web-sys = { version = "0.3.83", features = [
     "WebSocket",
     "MessageEvent",
     "BinaryType",
+    "Window",
+    "Url",
+    "HtmlAnchorElement",
 ] }
 anyhow = "1.0.89"
-wasm-bindgen = "0.2.93"
+wasm-bindgen = "0.2.106"
+js-sys = "0.3.83"
 glam = { version = ">=0.28.0", features = ["serde"] }
 wgpu = { version = "24.0.3", features = ["webgpu"], default-features = false }
 bytemuck = "1.22.0"

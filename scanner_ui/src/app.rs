@@ -1,5 +1,6 @@
-use crate::draw;
+use crate::point_cloud;
 use crate::render_ctx::{Point, RenderCtx};
+use crate::{draw, js_bindings};
 use msg;
 
 use glam::{Mat4, Vec3};
@@ -13,7 +14,7 @@ use web_sys::{MessageEvent, WebSocket};
 use wgpu;
 use wgpu::util::DeviceExt;
 
-static SERVER_IP: &str = "192.168.1.9";
+static SERVER_IP: &str = "192.168.1.10";
 
 struct Connection {
     ws: WebSocket,
@@ -380,6 +381,24 @@ impl eframe::App for App {
             ui.label(format!("Motor speed: {}", self.status.motor_speed));
             ui.label(format!("Laser 1: {}", self.status.lasers.laser_1));
             ui.label(format!("Laser 2: {}", self.status.lasers.laser_2));
+
+            if ui.button("Download point cloud").clicked() {
+                // trigger download of point cloud in PLY format
+                let ply_data = point_cloud::ply_encode(&self.points);
+
+                let len = ply_data.len() as u32;
+                let ptr = ply_data.as_ptr() as u32;
+
+                let res = js_bindings::save_streaming_file_blocking(ptr, len, "point_cloud.ply");
+                match res {
+                    Ok(_) => {
+                        log::info!("Point cloud download triggered");
+                    }
+                    Err(e) => {
+                        log::error!("Failed to trigger point cloud download: {:?}", e);
+                    }
+                }
+            }
 
             ui.separator();
 

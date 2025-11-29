@@ -9,6 +9,24 @@
     <!-- change this to your project name -->
     <title>3D Scanner</title>
 
+    <!-- JS glue to enable WASM -> JS file saving helper (must load before the wasm glue) -->
+    <script src="assets/save_streaming_file.js"></script>
+    <!-- Inline startup check: log whether the helper was registered on `window`. -->
+    <script>
+        (function() {
+            try {
+                if (typeof window !== 'undefined' && typeof window.save_streaming_file_sync === 'function') {
+                    console.info('save_streaming_file_sync: OK — helper registered on window.');
+                } else {
+                    console.warn('save_streaming_file_sync is NOT defined on window.\n' +
+                        'Ensure `assets/save_streaming_file.js` is included before the wasm bootstrap (the <link data-trunk rel="rust"> tag).\n' +
+                        'If you bundle or transform HTML, ensure the script remains available on globalThis/window.');
+                }
+            } catch (e) {
+                console.error('Error while checking for save_streaming_file_sync:', e);
+            }
+        })();
+    </script>
     <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
     <link data-trunk rel="rust" data-wasm-opt="2" />
     <!-- this is the base url relative to which other urls will be constructed. trunk will insert this from the public-url option -->
@@ -18,6 +36,7 @@
 
 
     <link data-trunk rel="copy-file" href="assets/sw.js"/>
+    <link data-trunk rel="copy-file" href="assets/save_streaming_file.js" data-target-path="assets"/>
     <link data-trunk rel="copy-file" href="assets/manifest.json" data-target-path="assets"/>
     <link data-trunk rel="copy-file" href="assets/icon-1024.png" data-target-path="assets"/>
     <link data-trunk rel="copy-file" href="assets/icon-256.png" data-target-path="assets"/>
@@ -27,6 +46,8 @@
 
     <link rel="manifest" href="assets/manifest.json">
     <link rel="apple-touch-icon" href="assets/icon_ios_touch_192.png">
+    <!-- JS glue to enable WASM -> JS file saving helper -->
+    <script src="assets/save_streaming_file.js"></script>
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="white">
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#404040">
 
@@ -141,6 +162,9 @@
             });
         }
     </script>
+
+    <!-- JS glue to enable WASM -> JS file saving helper -->
+    <script src="assets/save_streaming_file.js"></script>
 </body>
 
 </html>

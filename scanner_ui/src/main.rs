@@ -35,6 +35,8 @@ fn main() {
     let web_options = eframe::WebOptions::default();
 
     wasm_bindgen_futures::spawn_local(async {
+        // Initialize JS helper by passing the wasm memory to JS so the JS helper can create
+        // zero-copy views into WebAssembly memory when writing files.
         let document = web_sys::window()
             .expect("No window")
             .document()
