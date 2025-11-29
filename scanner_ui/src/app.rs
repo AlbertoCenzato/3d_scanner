@@ -382,14 +382,12 @@ impl eframe::App for App {
             ui.label(format!("Laser 1: {}", self.status.lasers.laser_1));
             ui.label(format!("Laser 2: {}", self.status.lasers.laser_2));
 
-            if ui.button("Download").clicked() {
+            if ui.button("Download point cloud").clicked() {
                 // trigger download of point cloud in PLY format
                 let ply_data = point_cloud::ply_encode(&self.points);
 
-                // convert to bytes and pass to js_bindings
-                let ply_bytes = ply_data.as_bytes();
-                let len = ply_bytes.len() as u32;
-                let ptr = ply_bytes.as_ptr() as u32;
+                let len = ply_data.len() as u32;
+                let ptr = ply_data.as_ptr() as u32;
 
                 let res = js_bindings::save_streaming_file_blocking(ptr, len, "point_cloud.ply");
                 match res {
