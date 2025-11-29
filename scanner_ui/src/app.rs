@@ -199,11 +199,14 @@ impl eframe::App for App {
                 bytemuck::cast_slice(&view_proj_std140),
             );
 
-            log::info!("Rendering...");
-            let command_buffer = ctx.render(&device, &vertex_buffer, point_data.len() as u32);
+            let num_points = point_data.len() as u32;
+            if num_points > 0 {
+                log::info!("Rendering...");
+                let command_buffer = ctx.render(&device, &vertex_buffer, num_points);
 
-            log::info!("Submitting command buffer...");
-            queue.submit(std::iter::once(command_buffer));
+                log::info!("Submitting command buffer...");
+                queue.submit(std::iter::once(command_buffer));
+            }
             vertex_buffer.destroy();
 
             //log::info!("Updating camera position: {:?}", self.camera_position);
