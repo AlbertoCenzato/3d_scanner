@@ -273,34 +273,32 @@ impl RenderCtx {
         min_point_capacity: u32,
     ) {
         let min_capacity = min_point_capacity + (self.axis_data.len() as u32);
-        if min_capacity == 0 {
+        if min_capacity <= self.vertex_capacity {
             return;
         }
-        if min_capacity > self.vertex_capacity {
-            log::info!(
-                "Resizing vertex buffer from {} to at least {} points",
-                self.vertex_capacity,
-                min_capacity
-            );
-            let mut new_capacity = min_capacity.next_power_of_two();
-            if new_capacity < 1 {
-                new_capacity = 1;
-            }
-            let vb_size: wgpu::BufferAddress = (std::mem::size_of::<Point>()
-                as wgpu::BufferAddress)
-                * new_capacity as wgpu::BufferAddress;
-            self.vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Vertex Buffer (resized)"),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                size: vb_size,
-                mapped_at_creation: false,
-            });
-            self.vertex_capacity = new_capacity;
 
-            // Upload axis data to the start of the buffer
-            let axis_data: Vec<Point> = self.axis_data.iter().map(|v| Point::new(v)).collect();
-            queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&axis_data));
+        log::info!(
+            "Resizing vertex buffer from {} to at least {} points",
+            self.vertex_capacity,
+            min_capacity
+        );
+        let mut new_capacity = min_capacity.next_power_of_two();
+        if new_capacity < 1 {
+            new_capacity = 1;
         }
+        let vb_size: wgpu::BufferAddress = (std::mem::size_of::<Point>() as wgpu::BufferAddress)
+            * new_capacity as wgpu::BufferAddress;
+        self.vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Vertex Buffer (resized)"),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            size: vb_size,
+            mapped_at_creation: false,
+        });
+        self.vertex_capacity = new_capacity;
+
+        // Upload axis data to the start of the buffer
+        let axis_data: Vec<Point> = self.axis_data.iter().map(|v| Point::new(v)).collect();
+        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&axis_data));
     }
 
     /// Update the vertex buffer contents from CPU memory. The buffer must have
@@ -309,10 +307,10 @@ impl RenderCtx {
         if data.is_empty() {
             return;
         }
-        queue.write_buffer(
-            &self.vertex_buffer,
-            self.axis_data.len() as wgpu::BufferAddress,
-            bytemuck::cast_slice(data),
-        );
+
+        // First part of the buffer is occupied by axis data, so we offset by that amount,
+        // we don't want to overwrite it
+        let offset = (self.axis_data.len() * std::mem::size_of::<Point>()) as wgpu::BufferAddress;
+        queue.write_buffer(&self.vertex_buffer, offset, bytemuck::cast_slice(data));
     }
 }
