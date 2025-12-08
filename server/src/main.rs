@@ -1,3 +1,4 @@
+mod acquisition_loop;
 mod calibration;
 mod cameras;
 mod imgproc;
@@ -14,6 +15,7 @@ use env_logger;
 use log;
 use msg::DEFAULT_SERVER_PORT;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Parser)]
 struct Cli {
@@ -72,7 +74,8 @@ fn main() -> Result<()> {
             let data_logger = logging::make_logger("Scanner3D", rerun_connection_string)?;
 
             log::info!("Initializing scanner...");
-            let mut scanner = scanner::Scanner::new(camera_type, data_logger, &calibration)?;
+            let mut scanner =
+                scanner::Scanner::new(camera_type, Arc::from(data_logger), &calibration)?;
 
             server::run_websocket_server(port, &mut scanner)?;
         }

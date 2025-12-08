@@ -4,6 +4,7 @@ use anyhow::Result;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json;
 
+#[derive(Clone)]
 pub struct LaserCalib {
     // TODO(alberto): generalize to 3D
     pub angle: f32,
@@ -39,7 +40,7 @@ impl LaserCalib {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct RefSysTransform {
     rotation_euler_deg: glam::Vec3,
     translation_m: glam::Vec3,
@@ -57,7 +58,7 @@ impl RefSysTransform {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CameraIntrinsics {
     pub focal_length_m: f32,
     pub height_px: f32,
@@ -71,7 +72,7 @@ impl CameraIntrinsics {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CameraCalib {
     pub intrinsics: CameraIntrinsics,
     pub extrinsics: RefSysTransform,
@@ -89,7 +90,7 @@ impl CameraCalib {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Calibration {
     pub camera: CameraCalib,
     pub laser_left: LaserCalib,

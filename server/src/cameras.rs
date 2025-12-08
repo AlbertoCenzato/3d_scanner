@@ -1,15 +1,9 @@
+use crate::acquisition_loop::{AcquisitionLoop, Camera, OpenCamera};
 use crate::calibration;
-use crate::imgproc;
-use crate::logging;
-use crate::motor;
 use anyhow::Result;
-use log::{error, info, warn};
-use msg::response;
-use msg::response::PointCloud;
-use msg::response::Response;
-use std::f32::consts::PI;
+use log::info;
 use std::path::{Path, PathBuf};
-use std::{io, sync::mpsc, vec::IntoIter};
+use std::{io, vec::IntoIter};
 
 pub enum CameraType {
     DiskLoader(std::path::PathBuf),
@@ -36,21 +30,7 @@ impl std::fmt::Display for CameraError {
     }
 }
 
-pub trait Camera {
-    fn acquire_from_camera(
-        &mut self,
-        rec: &dyn logging::Logger,
-        motor: &mut dyn motor::StepperMotor,
-        scanned_data_queue: mpsc::Sender<Response>,
-    ) -> Result<()>;
-
-    fn calibration(&self) -> &calibration::Calibration;
-}
-
-pub fn make_camera(
-    camera_type: CameraType,
-    calibration: calibration::Calibration,
-) -> Result<Box<dyn Camera>> {
+pub fn make_camera(camera_type: CameraType) -> Result<Box<dyn Camera>> {
     match camera_type {
         CameraType::DiskLoader(path) => {
             let camera: Box<dyn Camera> = Box::new(DiskCamera::from_directory(&path)?);
@@ -58,18 +38,10 @@ pub fn make_camera(
         }
         #[cfg(feature = "camera")]
         CameraType::RaspberryPi => {
-            let camera: Box<dyn Camera> = Box::new(real_camera::PiCamera {
-                num_buffers: 5,
-                calibration,
-            });
+            let camera: Box<dyn Camera> = Box::new(real_camera::PiCamera { num_buffers: 5 });
             return Ok(camera);
         }
     }
-}
-
-pub struct DiskCamera {
-    images_paths: IntoIter<PathBuf>,
-    calibration: calibration::Calibration,
 }
 
 fn is_img_path(path: &Path) -> bool {
@@ -78,6 +50,11 @@ fn is_img_path(path: &Path) -> bool {
         return ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "bmp";
     }
     return false;
+}
+
+pub struct DiskCamera {
+    images_paths: IntoIter<PathBuf>,
+    calibration: calibration::Calibration,
 }
 
 impl DiskCamera {
@@ -97,7 +74,9 @@ impl DiskCamera {
             calibration,
         })
     }
+}
 
+impl OpenCamera for DiskCamera {
     fn get_image(&mut self) -> Result<image::GrayImage> {
         match self.images_paths.next() {
             Some(path) => {
@@ -117,32 +96,14 @@ impl DiskCamera {
 impl Camera for DiskCamera {
     fn acquire_from_camera(
         &mut self,
-        rec: &dyn logging::Logger,
-        motor: &mut dyn motor::StepperMotor,
-        scanned_data_queue: mpsc::Sender<Response>,
-    ) -> Result<()> {
-        let angle_per_step = 5_f32.to_radians();
-        let steps = (2_f32 * PI / angle_per_step).ceil() as i32;
-        for i in 0..steps {
-            let image = self.get_image()?;
-            let new_points = imgproc::process_image(
-                &image,
-                i as i64,
-                rec,
-                angle_per_step,
-                &self.calibration,
-                motor,
-            );
-
-            let response = PointCloud { points: new_points };
-            scanned_data_queue.send(Response::PointCloud(response))?;
-        }
-        return Ok(());
+        acquisition_loop: &mut AcquisitionLoop,
+    ) -> anyhow::Result<()> {
+        return acquisition_loop.run(self);
     }
 
-    fn calibration(&self) -> &calibration::Calibration {
-        return &self.calibration;
-    }
+    //fn calibration(&self) -> &calibration::Calibration {
+    //    return &self.calibration;
+    //}
 }
 
 #[cfg(feature = "camera")]
@@ -154,14 +115,12 @@ pub mod real_camera {
         camera_manager::CameraManager,
         framebuffer::AsFrameBuffer,
         framebuffer_allocator::{FrameBuffer, FrameBufferAllocator},
-        framebuffer_map::{MemoryMappedFrameBuffer, MemoryMappedFrameBufferError},
-        geometry::Size,
+        framebuffer_map::MemoryMappedFrameBuffer,
         pixel_format::PixelFormat,
         properties,
         request::{Request, ReuseFlag},
         stream::StreamRole,
     };
-    use msg::response::PointCloud;
     use std::time::Duration;
 
     // drm-fourcc does not have MJPEG type yet, construct it from raw fourcc identifier
@@ -169,18 +128,63 @@ pub mod real_camera {
 
     const YUV420: PixelFormat = PixelFormat::new(DrmFourcc::Yuv420 as u32, 0);
 
+    struct RealOpenCamera<'d> {
+        camera: ActiveCamera<'d>,
+        stream: libcamera::stream::Stream,
+        frame_size: libcamera::geometry::Size,
+        requests: Vec<Request>,
+        rx: std::sync::mpsc::Receiver<Request>,
+    }
+
+    impl OpenCamera for RealOpenCamera<'_> {
+        fn get_image(&mut self) -> Result<image::GrayImage> {
+            let req = self.requests.pop().ok_or(CameraError::InvalidRequest)?;
+            self.camera.queue_request(req).unwrap();
+
+            info!("Waiting for camera request execution");
+            let mut req = self.rx.recv_timeout(Duration::from_secs(2))?;
+            info!("Camera request {:?} completed!", req);
+            info!("Metadata: {:#?}", req.metadata());
+            // Get framebuffer for our stream
+            let framebuffer: &MemoryMappedFrameBuffer<FrameBuffer> = req
+                .buffer(&self.stream)
+                .ok_or(CameraError::InvalidRequest)?;
+            info!("FrameBuffer metadata: {:#?}", framebuffer.metadata());
+
+            // grayscale image encoded in first image plane
+            let planes = framebuffer.data();
+            let image_data = planes.get(0).unwrap();
+            let data_length = framebuffer
+                .metadata()
+                .unwrap()
+                .planes()
+                .get(0)
+                .unwrap()
+                .bytes_used as usize;
+
+            // copy buffer data to Vec<u8>
+            let buffer_data = image_data[..data_length].to_vec();
+
+            // recycle request
+            req.reuse(ReuseFlag::REUSE_BUFFERS);
+            self.requests.push(req);
+
+            let image = image::GrayImage::from_raw(
+                self.frame_size.width,
+                self.frame_size.height,
+                buffer_data,
+            )
+            .ok_or(CameraError::InvalidRequest)?;
+            return Ok(image);
+        }
+    }
+
     pub struct PiCamera {
         pub num_buffers: u32,
-        pub calibration: calibration::Calibration,
     }
 
     impl Camera for PiCamera {
-        fn acquire_from_camera(
-            &mut self,
-            rec: &dyn logging::Logger,
-            motor: &mut dyn motor::StepperMotor,
-            scanned_data_queue: mpsc::Sender<Response>,
-        ) -> Result<()> {
+        fn acquire_from_camera(&mut self, acquisition_loop: &mut AcquisitionLoop) -> Result<()> {
             let mngr = CameraManager::new()?;
             let cameras = mngr.cameras();
             let cam = cameras.get(0).ok_or(CameraError::CameraNotFound)?;
@@ -234,7 +238,7 @@ pub mod real_camera {
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Create capture requests and attach buffers
-            let mut reqs = buffers
+            let reqs = buffers
                 .into_iter()
                 .map(|buf| {
                     let mut req = cam
@@ -253,80 +257,15 @@ pub mod real_camera {
 
             cam.start(None)?;
 
-            let mut point_cloud = Vec::<glam::Vec3>::new();
-            let angle_per_step = 5_f32.to_radians();
-            let steps = (2_f32 * PI / angle_per_step).ceil() as i32;
-            for i in 0..steps {
-                info!("Acquiring image {}", i);
-                let image = get_image(&cam, &stream, &frame_size, &mut reqs, &rx)?;
-                info!("Processing image {}", i);
-                imgproc::process_image(
-                    &image,
-                    i as i64,
-                    rec,
-                    angle_per_step,
-                    &self.calibration,
-                    motor,
-                    &mut point_cloud,
-                )?;
+            let mut open_camera = RealOpenCamera {
+                camera: cam,
+                stream: stream,
+                frame_size: frame_size,
+                requests: reqs,
+                rx: rx,
+            };
 
-                let fake_data = i as f32;
-                let response = PointCloud {
-                    points: vec![glam::Vec3::new(fake_data, fake_data, fake_data)],
-                };
-                scanned_data_queue.send(Response::PointCloud(response))?;
-
-                motor.step(1);
-                std::thread::sleep(Duration::from_millis(100));
-            }
-
-            Ok(())
+            return acquisition_loop.run(&mut open_camera);
         }
-    }
-
-    fn calibration(&self) -> &calibration::Calibration {
-        return &self.calibration;
-    }
-
-    fn get_image(
-        camera: &ActiveCamera,
-        stream: &libcamera::stream::Stream,
-        frame_size: &libcamera::geometry::Size,
-        requests: &mut Vec<Request>,
-        rx: &std::sync::mpsc::Receiver<Request>,
-    ) -> Result<image::GrayImage> {
-        let req = requests.pop().ok_or(CameraError::InvalidRequest)?;
-        camera.queue_request(req).unwrap();
-
-        info!("Waiting for camera request execution");
-        let mut req = rx.recv_timeout(Duration::from_secs(2))?;
-        info!("Camera request {:?} completed!", req);
-        info!("Metadata: {:#?}", req.metadata());
-        // Get framebuffer for our stream
-        let framebuffer: &MemoryMappedFrameBuffer<FrameBuffer> =
-            req.buffer(&stream).ok_or(CameraError::InvalidRequest)?;
-        info!("FrameBuffer metadata: {:#?}", framebuffer.metadata());
-
-        // grayscale image encoded in first image plane
-        let planes = framebuffer.data();
-        let image_data = planes.get(0).unwrap();
-        let data_length = framebuffer
-            .metadata()
-            .unwrap()
-            .planes()
-            .get(0)
-            .unwrap()
-            .bytes_used as usize;
-
-        // copy buffer data to Vec<u8>
-        let buffer_data = image_data[..data_length].to_vec();
-
-        // recycle request
-        req.reuse(ReuseFlag::REUSE_BUFFERS);
-        requests.push(req);
-
-        let image = image::GrayImage::from_raw(frame_size.width, frame_size.height, buffer_data)
-            .ok_or(CameraError::InvalidRequest)?;
-        return Ok(image);
     }
 }
