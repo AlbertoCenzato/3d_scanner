@@ -1,17 +1,16 @@
 use anyhow::Result;
-use std::cfg;
 
-pub trait StepperMotor {
+pub trait StepperMotor: Send {
     fn step(&mut self, steps: u32);
     fn steps_per_rev(&self) -> f32;
     fn name(&self) -> String;
 }
 
-pub fn make_stepper_motor() -> Result<Box<dyn StepperMotor>> {
+pub fn make_stepper_motor() -> Result<Box<dyn StepperMotor + Send>> {
     #[cfg(feature = "motor")]
-    let motor: Box<dyn StepperMotor> = Box::new(real_motor::NemaStepperMotor::new()?);
+    let motor: Box<dyn StepperMotor + Send> = Box::new(real_motor::NemaStepperMotor::new()?);
     #[cfg(not(feature = "motor"))]
-    let motor: Box<dyn StepperMotor> = Box::new(MockStepperMotor {});
+    let motor: Box<dyn StepperMotor + Send> = Box::new(MockStepperMotor {});
     return Ok(motor);
 }
 

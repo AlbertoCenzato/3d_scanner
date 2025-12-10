@@ -6,7 +6,7 @@ use image::DynamicImage;
 use log;
 use std::cfg;
 
-pub trait Logger {
+pub trait Logger: Sync + Send {
     fn log_transform(&self, id: &str, transform: &Affine3A) -> Result<()>;
     fn log_points(&self, id: &str, points: &[glam::Vec3]) -> Result<()>;
     fn log_image(&self, id: &str, image: DynamicImage) -> Result<()>;
@@ -14,12 +14,14 @@ pub trait Logger {
     fn set_time_sequence(&self, id: &str, time: i64);
 }
 
+pub type LoggerHandle = std::sync::Arc<dyn Logger + Send + Sync>;
+
 #[allow(unused)]
-pub fn make_logger(logger_name: &str, address: String) -> Result<Box<dyn Logger>> {
+pub fn make_logger(logger_name: &str, address: String) -> Result<LoggerHandle> {
     #[cfg(feature = "rerun")]
-    let logger: Box<dyn Logger> = Box::new(rerun::RerunLogger::new(&logger_name, address)?);
+    let logger = std::sync::Arc::new(rerun::RerunLogger::new(&logger_name, address)?);
     #[cfg(not(feature = "rerun"))]
-    let logger: Box<dyn Logger> = Box::new(NullLogger {});
+    let logger = std::sync::Arc::new(NullLogger {});
     return Ok(logger);
 }
 

@@ -8,7 +8,7 @@ use std::sync::Arc;
 const LOW_THRESHOLD: u8 = 30;
 
 pub struct ImageProcessor {
-    pub rec: Arc<dyn logging::Logger>,
+    pub rec: Arc<LoggerHandle>,
     pub calib: calibration::Calibration,
 }
 

@@ -12,11 +12,9 @@ pub trait OpenCamera {
     fn get_image(&mut self) -> anyhow::Result<image::GrayImage>;
 }
 
-pub trait Camera {
+pub trait Camera: Send {
     fn acquire_from_camera(&mut self, acquisition_loop: &mut AcquisitionLoop)
         -> anyhow::Result<()>;
-
-    //fn calibration(&self) -> &calibration::Calibration;
 }
 
 pub struct AcquisitionLoop {

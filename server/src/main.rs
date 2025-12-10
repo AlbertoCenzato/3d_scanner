@@ -74,8 +74,7 @@ fn main() -> Result<()> {
             let data_logger = logging::make_logger("Scanner3D", rerun_connection_string)?;
 
             log::info!("Initializing scanner...");
-            let mut scanner =
-                scanner::Scanner::new(camera_type, Arc::from(data_logger), &calibration)?;
+            let mut scanner = scanner::Scanner::new(camera_type, data_logger, &calibration)?;
 
             server::run_websocket_server(port, &mut scanner)?;
         }

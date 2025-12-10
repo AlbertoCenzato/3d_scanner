@@ -30,15 +30,15 @@ impl std::fmt::Display for CameraError {
     }
 }
 
-pub fn make_camera(camera_type: CameraType) -> Result<Box<dyn Camera>> {
+pub fn make_camera(camera_type: CameraType) -> Result<Box<dyn Camera + Send>> {
     match camera_type {
         CameraType::DiskLoader(path) => {
-            let camera: Box<dyn Camera> = Box::new(DiskCamera::from_directory(&path)?);
+            let camera: Box<dyn Camera + Send> = Box::new(DiskCamera::from_directory(&path)?);
             return Ok(camera);
         }
         #[cfg(feature = "camera")]
         CameraType::RaspberryPi => {
-            let camera: Box<dyn Camera> = Box::new(real_camera::PiCamera { num_buffers: 5 });
+            let camera: Box<dyn Camera + Send> = Box::new(real_camera::PiCamera { num_buffers: 5 });
             return Ok(camera);
         }
     }
