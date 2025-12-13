@@ -7,6 +7,7 @@ pub mod command {
     pub enum Command {
         Status,
         Replay,
+        Stop,
     }
 
     impl Command {

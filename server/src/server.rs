@@ -106,17 +106,14 @@ fn handle_connection(
                 let error = Response::Error("Text messages are not supported".to_string());
                 (scanner, error)
             }
-            tungstenite::Message::Binary(bytes) => {
-                warn!("Binary message received, not supported");
-                match Command::from_bytes(&bytes) {
-                    Ok(command) => process_message(command, scanner, &send_msg),
-                    Err(e) => {
-                        error!("Failed to parse command: {e}");
-                        let error = Response::Error(format!("Invalid command: {e}"));
-                        (scanner, error)
-                    }
+            tungstenite::Message::Binary(bytes) => match Command::from_bytes(&bytes) {
+                Ok(command) => process_message(command, scanner, &send_msg),
+                Err(e) => {
+                    error!("Failed to parse command: {e}");
+                    let error = Response::Error(format!("Invalid command: {e}"));
+                    (scanner, error)
                 }
-            }
+            },
             _ => {
                 warn!("Unsupported message type");
                 let error = Response::Error("Unsupported message type".to_string());
@@ -166,6 +163,19 @@ fn process_message(
                 ActiveScanner::Running(r),
                 Err("Acquisition already in progress".to_string()),
             ),
+        },
+        cmd::Stop => match scanner {
+            ActiveScanner::Idle(s) => {
+                log::info!("Scanner already stopped");
+                (ActiveScanner::Idle(s), Ok(()))
+            }
+            ActiveScanner::Running(r) => {
+                let (s, res) = r.stop();
+                if let Err(e) = res {
+                    error!("Failed to stop scanner: {e}");
+                }
+                (ActiveScanner::Idle(s), Ok(()))
+            }
         },
     };
 
