@@ -3,6 +3,7 @@ use crate::calibration;
 use anyhow::Result;
 use log::info;
 use std::path::{Path, PathBuf};
+use std::sync::{atomic::AtomicBool, Arc};
 use std::{io, vec::IntoIter};
 
 pub enum CameraType {
@@ -96,9 +97,10 @@ impl OpenCamera for DiskCamera {
 impl Camera for DiskCamera {
     fn acquire_from_camera(
         &mut self,
+        stop_token: Arc<AtomicBool>,
         acquisition_loop: &mut AcquisitionLoop,
     ) -> anyhow::Result<()> {
-        return acquisition_loop.run(self);
+        return acquisition_loop.run(stop_token, self);
     }
 
     //fn calibration(&self) -> &calibration::Calibration {
@@ -184,7 +186,11 @@ pub mod real_camera {
     }
 
     impl Camera for PiCamera {
-        fn acquire_from_camera(&mut self, acquisition_loop: &mut AcquisitionLoop) -> Result<()> {
+        fn acquire_from_camera(
+            &mut self,
+            stop_token: Arc<AtomicBool>,
+            acquisition_loop: &mut AcquisitionLoop,
+        ) -> Result<()> {
             let mngr = CameraManager::new()?;
             let cameras = mngr.cameras();
             let cam = cameras.get(0).ok_or(CameraError::CameraNotFound)?;
@@ -265,7 +271,7 @@ pub mod real_camera {
                 rx: rx,
             };
 
-            return acquisition_loop.run(&mut open_camera);
+            return acquisition_loop.run(stop_token, &mut open_camera);
         }
     }
 }

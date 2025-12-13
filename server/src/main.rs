@@ -7,6 +7,8 @@ mod motor;
 mod scanner;
 mod server;
 
+use scanner::{IdleState, Scanner};
+
 use motor::make_stepper_motor;
 
 use anyhow::Result;
@@ -15,7 +17,6 @@ use env_logger;
 use log;
 use msg::DEFAULT_SERVER_PORT;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 #[derive(Parser)]
 struct Cli {
@@ -74,9 +75,9 @@ fn main() -> Result<()> {
             let data_logger = logging::make_logger("Scanner3D", rerun_connection_string)?;
 
             log::info!("Initializing scanner...");
-            let mut scanner = scanner::Scanner::new(camera_type, data_logger, &calibration)?;
+            let mut scanner = Scanner::<IdleState>::new(camera_type, data_logger, &calibration)?;
 
-            server::run_websocket_server(port, &mut scanner)?;
+            server::run_websocket_server(port, scanner)?;
         }
     }
 

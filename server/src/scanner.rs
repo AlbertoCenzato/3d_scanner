@@ -4,40 +4,50 @@ use crate::cameras;
 use crate::imgproc;
 use crate::logging::LoggerHandle;
 use crate::motor;
+use log;
 
 use anyhow::Ok;
 use msg::response::Response;
 use std::sync::mpsc;
 
-use std::sync::Arc;
+use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
 use std::thread;
 
-struct IdleState {
+pub struct IdleState {
     hw: HW,
 }
 
 impl IdleState {
     pub fn start(
         self,
-        logger: Arc<LoggerHandle>,
+        logger: LoggerHandle,
         calib: calibration::Calibration,
         scanned_data_queue: mpsc::Sender<msg::response::Response>,
     ) -> RunningState {
         let hw = self.hw;
+        let stop_token = Arc::new(AtomicBool::new(false));
+        let stop = stop_token.clone();
         let thread_handle = thread::spawn(move || {
-            return run(hw, logger, calib, scanned_data_queue);
+            log::info!("Acquisition thread: start");
+            let res = run(stop, hw, logger, calib, scanned_data_queue);
+            log::info!("Acquisition thread: stop");
+            return res;
         });
-        RunningState { thread_handle }
+        RunningState {
+            stop_token,
+            thread_handle,
+        }
     }
 }
 
-struct RunningState {
+pub struct RunningState {
+    stop_token: Arc<AtomicBool>,
     thread_handle: thread::JoinHandle<(IdleState, anyhow::Result<()>)>,
 }
 
 impl RunningState {
     pub fn stop(self) -> (IdleState, anyhow::Result<()>) {
-    	// TODO: request stop
+        self.stop_token.store(true, Ordering::Relaxed);
         self.thread_handle.join().unwrap()
     }
 }
@@ -48,7 +58,7 @@ struct HW {
 }
 
 pub struct Scanner<State> {
-    data_logger: Arc<LoggerHandle>,
+    data_logger: LoggerHandle,
     state: State,
     calibration: calibration::Calibration,
     laser_1: bool,
@@ -59,34 +69,40 @@ pub struct Scanner<State> {
 impl Scanner<IdleState> {
     pub fn new(
         camera_type: cameras::CameraType,
-        data_logger: Arc<LoggerHandle>,
+        data_logger: LoggerHandle,
         calibration_path: &std::path::Path,
     ) -> anyhow::Result<Self> {
         let default_calibration = calibration::load_calibration(&calibration_path)?;
         let camera = cameras::make_camera(camera_type)?;
-        data_logger.log_camera("world/camera", &default_calibration.camera)?;
-
         let motor = motor::make_stepper_motor()?;
 
+        let e = data_logger.log_camera("world/camera", &default_calibration.camera);
+        if let Some(error) = e.err() {
+            log::warn!("Failed to log camera data: {error}");
+        }
+
+        let hw = HW { motor, camera };
+        let state = IdleState { hw };
         let scanner = Self {
             data_logger,
-            status: ScannerAcquisitionStatus::Idle(HW { motor, camera }),
+            state,
             calibration: default_calibration,
             laser_1: false,
             laser_2: false,
             motor_position: 0_f32,
         };
-        // TODO(alberto): should we return an error if camera logging fails?
         Ok(scanner)
     }
 
     pub fn start(self, scanned_data_queue: mpsc::Sender<Response>) -> Scanner<RunningState> {
-        let running = self.state.start(self.data_logger.clone(), self.calibration.clone(), scanned_data_queue);
+        let running = self.state.start(
+            self.data_logger.clone(),
+            self.calibration.clone(),
+            scanned_data_queue,
+        );
         Scanner {
             data_logger: self.data_logger,
-            state: RunningState {
-                running,
-            },
+            state: running,
             calibration: self.calibration,
             laser_1: self.laser_1,
             laser_2: self.laser_2,
@@ -96,7 +112,7 @@ impl Scanner<IdleState> {
 }
 
 impl Scanner<RunningState> {
-	pub fn stop(self) -> (Scanner<IdleState>, anyhow::Result<()>) {
+    pub fn stop(self) -> (Scanner<IdleState>, anyhow::Result<()>) {
         let (idle_state, result) = self.state.stop();
         let scanner = Scanner {
             data_logger: self.data_logger,
@@ -110,30 +126,27 @@ impl Scanner<RunningState> {
     }
 }
 
-    /*
-    pub fn status(&mut self) -> msg::response::Status {
-        self.motor_position += 1_f32;
-        msg::response::Status {
-            lasers: msg::response::LasersData {
-                laser_1: self.laser_1,
-                laser_2: self.laser_2,
-            },
-            motor_speed: self.motor_position,
-        }
+/*
+pub fn status(&mut self) -> msg::response::Status {
+    self.motor_position += 1_f32;
+    msg::response::Status {
+        lasers: msg::response::LasersData {
+            laser_1: self.laser_1,
+            laser_2: self.laser_2,
+        },
+        motor_speed: self.motor_position,
     }
-    */
 }
+*/
 
 fn run(
+    stop_token: Arc<AtomicBool>,
     hw: HW,
-    data_logger: Arc<LoggerHandle>,
+    data_logger: LoggerHandle,
     calib: calibration::Calibration,
     output_queue: mpsc::Sender<Response>,
 ) -> (IdleState, anyhow::Result<()>) {
-    let img_processor = imgproc::ImageProcessor {
-        rec: data_logger,
-        calib,
-    };
+    let img_processor = imgproc::ImageProcessor { data_logger, calib };
 
     let HW { motor, mut camera } = hw;
 
@@ -143,9 +156,11 @@ fn run(
         scanned_data_queue: output_queue,
     };
 
-    let result = camera.acquire_from_camera(&mut acq_loop);
+    let result = camera.acquire_from_camera(stop_token, &mut acq_loop);
 
     let motor = acq_loop.stop();
 
-    return (HW { motor, camera }, result);
+    let hw = HW { motor, camera };
+    let state = IdleState { hw };
+    return (state, result);
 }

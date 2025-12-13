@@ -3,12 +3,10 @@ use crate::calibration::LaserCalib;
 use crate::logging;
 use log;
 
-use std::sync::Arc;
-
 const LOW_THRESHOLD: u8 = 30;
 
 pub struct ImageProcessor {
-    pub rec: Arc<LoggerHandle>,
+    pub data_logger: logging::LoggerHandle,
     pub calib: calibration::Calibration,
 }
 
@@ -19,8 +17,8 @@ impl ImageProcessor {
         i: i64,
         angle_per_step: f32,
     ) -> Vec<glam::Vec3> {
-        self.rec.set_time_sequence("timeline", i as i64);
-        let _ = self.rec.log_image(
+        self.data_logger.set_time_sequence("timeline", i as i64);
+        let _ = self.data_logger.log_image(
             "world/image",
             image::DynamicImage::ImageLuma8(image.clone()),
         );
@@ -32,7 +30,9 @@ impl ImageProcessor {
             *point = transform.transform_point3(*point);
         }
 
-        let _ = self.rec.log_points("world/points_3d_world", &new_points);
+        let _ = self
+            .data_logger
+            .log_points("world/points_3d_world", &new_points);
         return new_points;
     }
 }
