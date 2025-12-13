@@ -28,8 +28,7 @@ struct Cli {
 enum Commands {
     Run {
         image_dir: PathBuf,
-        #[clap(default_value = "calibration.json")]
-        calibration: PathBuf,
+        calibration: Option<PathBuf>,
         #[clap(default_value = DEFAULT_SERVER_PORT)]
         port: u16,
         #[clap(default_value = "rerun+http://127.0.0.1:9876/proxy")]
@@ -74,8 +73,11 @@ fn main() -> Result<()> {
             log::info!("Initializing data logger...");
             let data_logger = logging::make_logger("Scanner3D", rerun_connection_string)?;
 
+            let default_calib_file = image_dir.join("calibration.json");
+            let calibration = calibration.unwrap_or(default_calib_file);
+
             log::info!("Initializing scanner...");
-            let mut scanner = Scanner::<IdleState>::new(camera_type, data_logger, &calibration)?;
+            let scanner = Scanner::<IdleState>::new(camera_type, data_logger, &calibration)?;
 
             server::run_websocket_server(port, scanner)?;
         }
