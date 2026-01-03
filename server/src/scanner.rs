@@ -8,6 +8,8 @@ use log;
 
 use anyhow::Ok;
 use msg::response::Response;
+use std::fmt;
+use std::fmt::Display;
 use std::sync::mpsc;
 
 use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
@@ -52,21 +54,60 @@ impl RunningState {
     }
 }
 
+enum State {
+    Idle(IdleState),
+    Running(RunningState),
+}
+
+#[derive(Debug)]
+pub enum ScannerError {
+    AlreadyRunning,
+    NotRunning,
+    CommandNotImplemented(String),
+    ExecutionError(anyhow::Error),
+}
+
+impl Display for ScannerError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ScannerError::AlreadyRunning => write!(f, "Scanner is already running"),
+            ScannerError::NotRunning => write!(f, "Scanner is not running"),
+            ScannerError::CommandNotImplemented(command) => {
+                write!(f, "Command '{}' not implemented", command)
+            }
+            ScannerError::ExecutionError(error) => {
+                write!(f, "Execution error: {}", error)
+            }
+        }
+    }
+}
+
+impl std::error::Error for ScannerError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ScannerError::AlreadyRunning => None,
+            ScannerError::NotRunning => None,
+            ScannerError::CommandNotImplemented(_) => None,
+            ScannerError::ExecutionError(error) => error.source(),
+        }
+    }
+}
+
 struct HW {
     motor: Box<dyn motor::StepperMotor + Send>,
     camera: Box<dyn acquisition_loop::Camera + Send>,
 }
 
-pub struct Scanner<State> {
+pub struct Scanner {
     data_logger: LoggerHandle,
-    state: State,
+    state: Option<State>,
     calibration: calibration::Calibration,
     laser_1: bool,
     laser_2: bool,
     motor_position: f32,
 }
 
-impl Scanner<IdleState> {
+impl Scanner {
     pub fn new(
         camera_type: cameras::CameraType,
         data_logger: LoggerHandle,
@@ -82,10 +123,10 @@ impl Scanner<IdleState> {
         }
 
         let hw = HW { motor, camera };
-        let state = IdleState { hw };
+        let state = State::Idle(IdleState { hw });
         let scanner = Self {
             data_logger,
-            state,
+            state: Some(state),
             calibration: default_calibration,
             laser_1: false,
             laser_2: false,
@@ -94,35 +135,50 @@ impl Scanner<IdleState> {
         Ok(scanner)
     }
 
-    pub fn start(self, scanned_data_queue: mpsc::Sender<Response>) -> Scanner<RunningState> {
-        let running = self.state.start(
-            self.data_logger.clone(),
-            self.calibration.clone(),
-            scanned_data_queue,
-        );
-        Scanner {
-            data_logger: self.data_logger,
-            state: running,
-            calibration: self.calibration,
-            laser_1: self.laser_1,
-            laser_2: self.laser_2,
-            motor_position: self.motor_position,
-        }
-    }
-}
+    pub fn start(
+        &mut self,
+        scanned_data_queue: mpsc::Sender<Response>,
+    ) -> Result<(), ScannerError> {
+        assert!(self.state.is_some(), "Scanner state is not initialized");
 
-impl Scanner<RunningState> {
-    pub fn stop(self) -> (Scanner<IdleState>, anyhow::Result<()>) {
-        let (idle_state, result) = self.state.stop();
-        let scanner = Scanner {
-            data_logger: self.data_logger,
-            state: idle_state,
-            calibration: self.calibration,
-            laser_1: self.laser_1,
-            laser_2: self.laser_2,
-            motor_position: self.motor_position,
+        let mut state = self.state.take();
+        let result = match state.unwrap() {
+            State::Idle(idle_state) => {
+                let running = idle_state.start(
+                    self.data_logger.clone(),
+                    self.calibration.clone(),
+                    scanned_data_queue,
+                );
+                state = Some(State::Running(running));
+                Result::<(), ScannerError>::Ok(())
+            }
+            State::Running(running_state) => {
+                state = Some(State::Running(running_state));
+                Err(ScannerError::AlreadyRunning)
+            }
         };
-        (scanner, result)
+        self.state = state;
+        result
+    }
+
+    pub fn stop(&mut self) -> Result<(), ScannerError> {
+        assert!(self.state.is_some(), "Scanner state is not initialized");
+
+        let mut state = self.state.take();
+        let result = match state.unwrap() {
+            State::Running(running_state) => {
+                let (idle_state, result) = running_state.stop();
+                state = Some(State::Idle(idle_state));
+                result.map_err(|e| ScannerError::ExecutionError(e))
+            }
+            State::Idle(idle_state) => {
+                state = Some(State::Idle(idle_state));
+                Err(ScannerError::NotRunning)
+            }
+        };
+
+        self.state = state;
+        result
     }
 }
 

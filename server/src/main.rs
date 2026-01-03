@@ -7,7 +7,7 @@ mod motor;
 mod scanner;
 mod server;
 
-use scanner::{IdleState, Scanner};
+use scanner::Scanner;
 
 use motor::make_stepper_motor;
 
@@ -77,9 +77,9 @@ fn main() -> Result<()> {
             let calibration = calibration.unwrap_or(default_calib_file);
 
             log::info!("Initializing scanner...");
-            let scanner = Scanner::<IdleState>::new(camera_type, data_logger, &calibration)?;
+            let mut scanner = Scanner::new(camera_type, data_logger, &calibration)?;
 
-            server::run_websocket_server(port, scanner)?;
+            server::run_websocket_server(port, &mut scanner)?;
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::scanner::{IdleState, RunningState, Scanner};
+use crate::scanner::{Scanner, ScannerError};
 use log::{error, info, warn};
 use msg::command::Command;
 use msg::response::Response;
@@ -6,14 +6,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::sync::{mpsc, Arc};
 use tungstenite;
 
-enum ActiveScanner {
-    Idle(Scanner<IdleState>),
-    Running(Scanner<RunningState>),
-}
-
-pub fn run_websocket_server(port: u16, scanner: Scanner<IdleState>) -> anyhow::Result<()> {
-    let mut scanner = scanner;
-
+pub fn run_websocket_server(port: u16, scanner: &mut Scanner) -> anyhow::Result<()> {
     info!("Starting WebSocket server...");
     let connection_string = format!("0.0.0.0:{port}");
     let server = std::net::TcpListener::bind(connection_string)?;
@@ -47,7 +40,7 @@ pub fn run_websocket_server(port: u16, scanner: Scanner<IdleState>) -> anyhow::R
 
         info!("WebSocket client connected: {}", addr);
 
-        scanner = handle_connection(client, &addr, scanner);
+        handle_connection(client, &addr, scanner);
     }
 
     return Ok(());
@@ -56,9 +49,8 @@ pub fn run_websocket_server(port: u16, scanner: Scanner<IdleState>) -> anyhow::R
 fn handle_connection(
     connection: tungstenite::WebSocket<TcpStream>,
     peer_address: &SocketAddr,
-    scanner: Scanner<IdleState>,
-) -> Scanner<IdleState> {
-    let mut scanner = ActiveScanner::Idle(scanner);
+    scanner: &mut Scanner,
+) {
     let connection = Arc::new(std::sync::Mutex::new(connection));
     let receiver = connection.clone();
     let sender = connection.clone();
@@ -99,32 +91,26 @@ fn handle_connection(
         let res = match message {
             tungstenite::Message::Close(_) => {
                 info!("Client {peer_address} requested disconnection");
-                (scanner, Response::Close)
+                Response::Close
             }
             tungstenite::Message::Text(text) => {
                 info!("Text message received: {text}");
-                let error = Response::Error("Text messages are not supported".to_string());
-                (scanner, error)
+                Response::Error("Text messages are not supported".to_string())
             }
             tungstenite::Message::Binary(bytes) => match Command::from_bytes(&bytes) {
                 Ok(command) => process_message(command, scanner, &send_msg),
                 Err(e) => {
                     error!("Failed to parse command: {e}");
-                    let error = Response::Error(format!("Invalid command: {e}"));
-                    (scanner, error)
+                    Response::Error(format!("Invalid command: {e}"))
                 }
             },
             _ => {
                 warn!("Unsupported message type");
-                let error = Response::Error("Unsupported message type".to_string());
-                (scanner, error)
+                Response::Error("Unsupported message type".to_string())
             }
         };
 
-        scanner = res.0;
-        let response = res.1;
-
-        let res = send_msg.send(response);
+        let res = send_msg.send(res);
         if let Err(e) = res {
             error!("Internal send queue broken: {e}");
             error!("Closing connection with {peer_address}");
@@ -135,53 +121,26 @@ fn handle_connection(
     drop(send_msg); // Close the sender channel to stop the sender thread
     sender_thread.join().expect("Failed to join sender thread");
 
-    let scanner = match scanner {
-        ActiveScanner::Idle(s) => s,
-        ActiveScanner::Running(r) => {
-            let (s, res) = r.stop();
-            if let Err(e) = res {
-                error!("Failed to stop scanner: {e}");
-            }
-            s
-        }
-    };
-
-    return scanner;
+    if let Err(e) = scanner.stop() {
+        error!("Failed to stop scanner: {e}");
+    }
 }
 
 fn process_message(
     command: msg::command::Command,
-    scanner: ActiveScanner,
+    scanner: &mut Scanner,
     sender: &mpsc::Sender<Response>,
-) -> (ActiveScanner, Response) {
+) -> Response {
     use msg::command::Command as cmd;
-    let (scanner, response) = match command {
-        cmd::Status => (scanner, Err("Status not implemented".to_string())),
-        cmd::Replay => match scanner {
-            ActiveScanner::Idle(s) => (ActiveScanner::Running(s.start(sender.clone())), Ok(())),
-            ActiveScanner::Running(r) => (
-                ActiveScanner::Running(r),
-                Err("Acquisition already in progress".to_string()),
-            ),
-        },
-        cmd::Stop => match scanner {
-            ActiveScanner::Idle(s) => {
-                log::info!("Scanner already stopped");
-                (ActiveScanner::Idle(s), Ok(()))
-            }
-            ActiveScanner::Running(r) => {
-                let (s, res) = r.stop();
-                if let Err(e) = res {
-                    error!("Failed to stop scanner: {e}");
-                }
-                (ActiveScanner::Idle(s), Ok(()))
-            }
-        },
+    let response = match command {
+        cmd::Status => Err(ScannerError::CommandNotImplemented(cmd::Status.to_string())),
+        cmd::Replay => scanner.start(sender.clone()),
+        cmd::Stop => scanner.stop(),
     };
 
     let response = match response {
         Ok(()) => Response::Ok,
         Err(error) => Response::Error(format!("Error processing command {command:?}: {error}")),
     };
-    return (scanner, response);
+    return response;
 }
