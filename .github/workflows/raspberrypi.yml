@@ -10,27 +10,27 @@ jobs:
   server:
     runs-on: self-hosted
     container:
-      image: ghcr.io/albertocenzato/scanner-3d-dev:1.4
+      image: ghcr.io/albertocenzato/scanner-3d-dev:1.5
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PAT }}
     steps:
-    - uses: actions/checkout@v4.2.2
-      with:
-        token: '${{ secrets.GHCR_PAT }}'
+      - uses: actions/checkout@v4.2.2
+        with:
+          token: "${{ secrets.GHCR_PAT }}"
 
-    - name: Cache dependencies
-      uses: actions/cache@v4.2.1
-      with:
-        path: |
-          ~/.cargo
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        
-    # NOTE: theoretically cargo 1.85.1 is already installed in the docker image,
-    # but for some reason it picks up an older version, so we force install it again
-    - name: Build server
-      run: |
-        rustup install 1.85.1
-        rustup default 1.85.1
-        cargo build --bin server --locked
+      - name: Cache dependencies
+        uses: actions/cache@v4.2.1
+        with:
+          path: |
+            ~/.cargo
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      # NOTE: theoretically cargo 1.85.1 is already installed in the docker image,
+      # but for some reason it picks up an older version, so we force install it again
+      - name: Build server
+        run: |
+          rustup install 1.85.1
+          rustup default 1.85.1
+          cargo build --bin server --locked

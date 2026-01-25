@@ -12,39 +12,38 @@ jobs:
   server:
     runs-on: self-hosted
     container:
-      image: ghcr.io/albertocenzato/scanner-3d-dev:1.3
+      image: ghcr.io/albertocenzato/scanner-3d-dev:1.5
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PAT }}
     steps:
-    - uses: actions/checkout@v4.2.2
-      with:
-        token: '${{ secrets.GHCR_PAT }}'
+      - uses: actions/checkout@v4.2.2
+        with:
+          token: "${{ secrets.GHCR_PAT }}"
 
-    - name: Cache dependencies
-      uses: actions/cache@v4.2.1
-      with:
-        path: |
-          ~/.cargo
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        
-    - name: Build server
-      run: |
-        rustup default stable
-        cargo build --release --bin server
- 
-    # upload the binary to the release page
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.sha }}
-        release_name: Release ${{ github.sha }}
-        body: |
-          Changes in this Release:
-        draft: false
-        prerelease: false
+      - name: Cache dependencies
+        uses: actions/cache@v4.2.1
+        with:
+          path: |
+            ~/.cargo
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Build server
+        run: |
+          rustup default stable
+          cargo build --release --bin server
+
+      # upload the binary to the release page
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.sha }}
+          release_name: Release ${{ github.sha }}
+          body: |
+            Changes in this Release:
+          draft: false
+          prerelease: false
