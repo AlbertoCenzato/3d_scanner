@@ -16,3 +16,6 @@ RUN apt install -y clang libcamera-dev pkg-config
 
 # install useful development tools
 RUN apt install -y git
+
+# add zstd to enable github cache action to compress/decompress the cache with multiple threads
+RUN apt install -y zstd
