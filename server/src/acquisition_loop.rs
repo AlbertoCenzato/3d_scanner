@@ -51,7 +51,6 @@ impl AcquisitionLoop {
             self.scanned_data_queue
                 .send(Response::PointCloud(response))?;
             self.motor.step(1);
-            std::thread::sleep(std::time::Duration::from_millis(100));
         }
         log::info!("AcquisitionLoop: stop");
         return Ok(());
