@@ -35,8 +35,8 @@ impl AcquisitionLoop {
         camera: &mut dyn OpenCamera,
     ) -> anyhow::Result<()> {
         log::info!("AcquisitionLoop: start");
-        let angle_per_step = 5_f32.to_radians();
-        let steps = (2_f32 * PI / angle_per_step).ceil() as i32;
+        let steps = 100;
+        let angle_per_step = 2_f32 * PI / steps as f32;
         for i in 0..steps {
             log::info!("AcquisitionLoop: step {i}/{steps}");
             if stop_token.load(Ordering::Relaxed) {
