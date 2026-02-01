@@ -32,6 +32,7 @@ impl IdleState {
         let thread_handle = thread::spawn(move || {
             log::info!("Acquisition thread: start");
             let res = run(stop, hw, logger, calib, scanned_data_queue);
+            log::info!("Run finished: {:?}", res.1);
             log::info!("Acquisition thread: stop");
             return res;
         });

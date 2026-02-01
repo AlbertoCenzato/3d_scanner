@@ -38,7 +38,7 @@ impl ImageProcessor {
 }
 
 fn triangulate(image: &image::GrayImage, calib: &calibration::Calibration) -> Vec<glam::Vec3> {
-    log::info!("Image info: dimensions {:?}", image.dimensions(),);
+    log::debug!("Image info: dimensions {:?}", image.dimensions(),);
 
     let width = image.width() as f32;
     let height = image.height() as f32;

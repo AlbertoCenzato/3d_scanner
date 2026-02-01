@@ -1,5 +1,5 @@
 use crate::scanner::{Scanner, ScannerError};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use msg::command::Command;
 use msg::response::Response;
 use std::net::TcpStream;
@@ -97,7 +97,7 @@ fn receive(
         },
     };
 
-    info!("Received message: {:?}", message);
+    debug!("Received message: {:?}", message);
     let res = match message {
         tungstenite::Message::Close(_) => {
             info!("Client requested disconnection");
@@ -134,7 +134,7 @@ fn send(
 ) {
     for msg in outbound_queue.try_iter() {
         let data: tungstenite::Bytes = msg.to_bytes().into();
-        log::info!("Sending {} bytes", data.len());
+        log::debug!("Sending {} bytes", data.len());
         let msg = tungstenite::Message::Binary(data);
         if let Err(e) = websocket.write(msg) {
             error!("Failed to send message: {e}");
