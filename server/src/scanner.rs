@@ -142,7 +142,7 @@ impl Scanner {
     ) -> Result<(), ScannerError> {
         assert!(self.state.is_some(), "Scanner state is not initialized");
 
-        let mut state = self.state.take();
+        let state = self.state.take();
         let result = match state.unwrap() {
             State::Idle(idle_state) => {
                 let running = idle_state.start(
@@ -150,35 +150,33 @@ impl Scanner {
                     self.calibration.clone(),
                     scanned_data_queue,
                 );
-                state = Some(State::Running(running));
+                self.state = Some(State::Running(running));
                 Result::<(), ScannerError>::Ok(())
             }
             State::Running(running_state) => {
-                state = Some(State::Running(running_state));
+                self.state = Some(State::Running(running_state));
                 Err(ScannerError::AlreadyRunning)
             }
         };
-        self.state = state;
         result
     }
 
     pub fn stop(&mut self) -> Result<(), ScannerError> {
         assert!(self.state.is_some(), "Scanner state is not initialized");
 
-        let mut state = self.state.take();
+        let state = self.state.take();
         let result = match state.unwrap() {
             State::Running(running_state) => {
                 let (idle_state, result) = running_state.stop();
-                state = Some(State::Idle(idle_state));
+                self.state = Some(State::Idle(idle_state));
                 result.map_err(|e| ScannerError::ExecutionError(e))
             }
             State::Idle(idle_state) => {
-                state = Some(State::Idle(idle_state));
+                self.state = Some(State::Idle(idle_state));
                 Err(ScannerError::NotRunning)
             }
         };
 
-        self.state = state;
         result
     }
 }

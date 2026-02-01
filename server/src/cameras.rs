@@ -34,7 +34,7 @@ impl std::fmt::Display for CameraError {
 pub fn make_camera(camera_type: CameraType) -> Result<Box<dyn Camera + Send>> {
     match camera_type {
         CameraType::DiskLoader(path) => {
-            let camera: Box<dyn Camera + Send> = Box::new(DiskCamera::from_directory(&path)?);
+            let camera: Box<dyn Camera + Send> = Box::new(DiskCamera::from_directory(path)?);
             return Ok(camera);
         }
         #[cfg(feature = "camera")]
@@ -54,13 +54,23 @@ fn is_img_path(path: &Path) -> bool {
 }
 
 pub struct DiskCamera {
-    images_paths: IntoIter<PathBuf>,
+    images_dir: PathBuf,
     calibration: calibration::Calibration,
 }
 
 impl DiskCamera {
-    fn from_directory(path: &Path) -> Result<DiskCamera, io::Error> {
-        let images: Vec<PathBuf> = path
+    fn from_directory(path: PathBuf) -> Result<DiskCamera, io::Error> {
+        let calibration = calibration::load_calibration(&path.join("calibration.json"))
+            .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("{e}")))?;
+        Ok(DiskCamera {
+            images_dir: path,
+            calibration,
+        })
+    }
+
+    fn open(&self) -> Result<OpenDiskCamera, io::Error> {
+        let images: Vec<PathBuf> = self
+            .images_dir
             .read_dir()?
             .filter_map(|f| match f {
                 Ok(entry) => Some(entry.path()),
@@ -68,16 +78,32 @@ impl DiskCamera {
             })
             .filter(|p| is_img_path(p))
             .collect();
-        let calibration = calibration::load_calibration(&path.join("calibration.json"))
-            .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("{e}")))?;
-        Ok(DiskCamera {
+        Ok(OpenDiskCamera {
             images_paths: images.into_iter(),
-            calibration,
         })
     }
 }
 
-impl OpenCamera for DiskCamera {
+impl Camera for DiskCamera {
+    fn acquire_from_camera(
+        &mut self,
+        stop_token: Arc<AtomicBool>,
+        acquisition_loop: &mut AcquisitionLoop,
+    ) -> anyhow::Result<()> {
+        let mut open_camera = self.open()?;
+        return acquisition_loop.run(stop_token, &mut open_camera);
+    }
+
+    //fn calibration(&self) -> &calibration::Calibration {
+    //    return &self.calibration;
+    //}
+}
+
+struct OpenDiskCamera {
+    images_paths: IntoIter<PathBuf>,
+}
+
+impl OpenCamera for OpenDiskCamera {
     fn get_image(&mut self) -> Result<image::GrayImage> {
         match self.images_paths.next() {
             Some(path) => {
@@ -92,20 +118,6 @@ impl OpenCamera for DiskCamera {
             }
         }
     }
-}
-
-impl Camera for DiskCamera {
-    fn acquire_from_camera(
-        &mut self,
-        stop_token: Arc<AtomicBool>,
-        acquisition_loop: &mut AcquisitionLoop,
-    ) -> anyhow::Result<()> {
-        return acquisition_loop.run(stop_token, self);
-    }
-
-    //fn calibration(&self) -> &calibration::Calibration {
-    //    return &self.calibration;
-    //}
 }
 
 #[cfg(feature = "camera")]
