@@ -414,13 +414,35 @@ impl eframe::App for App {
             ui.label(format!("Rendering pipeline context: {}", label));
         });
 
+        fn add_resizable_image(ui: &mut egui::Ui, texture_id: eframe::epaint::TextureId) {
+            const TEXTURE_WIDTH: f32 = 800_f32;
+            const TEXTURE_HEIGHT: f32 = 600_f32;
+            const ASPECT_RATIO: f32 = TEXTURE_WIDTH / TEXTURE_HEIGHT;
+            let view_height = ui.available_height();
+            let view_width = ui.available_width();
+
+            let width_diff = view_width - TEXTURE_WIDTH;
+            let height_diff = view_height - TEXTURE_HEIGHT;
+            let scale = if width_diff < height_diff {
+                view_width / TEXTURE_WIDTH
+            } else {
+                view_height / TEXTURE_HEIGHT
+            };
+
+            ui.add(
+                egui::Image::new((texture_id, egui::Vec2::new(TEXTURE_WIDTH, TEXTURE_HEIGHT)))
+                    .maintain_aspect_ratio(true)
+                    .fit_to_original_size(scale),
+            );
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
             ui.label("Point cloud:");
 
             let ctx = self.render_ctx.as_mut().unwrap();
-            ui.image((ctx.texture_id.unwrap(), egui::Vec2::new(800.0, 600.0)));
 
+            add_resizable_image(ui, ctx.texture_id.unwrap());
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 powered_by_egui_and_eframe(ui);
                 egui::warn_if_debug_build(ui);
