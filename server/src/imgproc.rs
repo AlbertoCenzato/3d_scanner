@@ -114,6 +114,6 @@ fn project_on_laser_plane(
     meters_per_px: f32,
 ) -> glam::Vec3 {
     let laser_baseline_px = laser_calib.baseline / meters_per_px;
-    let denominator = p.z * laser_calib.angle_rad().tan() + p.x;
+    let denominator = p.z * -laser_calib.angle_rad().tan() + p.x;
     p * (laser_baseline_px / denominator)
 }
