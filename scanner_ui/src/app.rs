@@ -437,12 +437,9 @@ impl eframe::App for App {
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-            ui.label("Point cloud:");
+            let render_ctx = self.render_ctx.as_mut().unwrap();
 
-            let ctx = self.render_ctx.as_mut().unwrap();
-
-            add_resizable_image(ui, ctx.texture_id.unwrap());
+            add_resizable_image(ui, render_ctx.texture_id.unwrap());
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 powered_by_egui_and_eframe(ui);
                 egui::warn_if_debug_build(ui);
