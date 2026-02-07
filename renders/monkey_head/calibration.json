@@ -1,11 +1,11 @@
 {
 	"laser_right": {
 		"translation_m": [0.0, 0.10000000149011612, 0.0],
-		"rotation_euler_deg": [25.00000012650595, 0.0, 0.0]
+		"rotation_euler_deg": [-25.00000012650595, 0.0, 0.0]
 	},
 	"laser_left": {
 		"translation_m": [0.0, -0.10000000149011612, 0.0],
-		"rotation_euler_deg": [-25.00000012650595, 0.0, 0.0]
+		"rotation_euler_deg": [25.00000012650595, 0.0, 0.0]
 	},
 	"camera": {
 		"intrinsics": {
