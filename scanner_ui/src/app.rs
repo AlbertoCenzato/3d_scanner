@@ -370,6 +370,18 @@ impl eframe::App for App {
                 }
             }
 
+            let stop_button = ui.button("Stop");
+            if stop_button.clicked() {
+                log::info!("Sending stop request");
+                if let Some(conn) = &c {
+                    let command = msg::command::Command::Stop;
+                    let res = conn.send_message(command);
+                    if let Err(e) = res {
+                        log::error!("Failed to send 'stop' command: {}", e);
+                    }
+                }
+            }
+
             ui.separator();
 
             ui.label(format!("Motor speed: {}", self.status.motor_speed));

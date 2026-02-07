@@ -1,0 +1,23 @@
+{
+	"laser_right": {
+		"translation_m": [0.0, 0.10000000149011612, 0.0],
+		"rotation_euler_deg": [25.00000012650595, 0.0, 0.0]
+	},
+	"laser_left": {
+		"translation_m": [0.0, -0.10000000149011612, 0.0],
+		"rotation_euler_deg": [-25.00000012650595, 0.0, 0.0]
+	},
+	"camera": {
+		"intrinsics": {
+			"focal_length_m": 0.004739999771118164,
+			"width_px": 1280,
+			"height_px": 720,
+			"meters_per_px": 5.039062350988388e-6
+		},
+		"extrinsics": {
+			"rotation_euler_deg": [0.0, 54.72242378100998, 0.0],
+			"translation_m": [0.15900000929832458, 0.0, 0.18000000715255737]
+		},
+		"cam_2_img_plane_rotation_deg": [0.0, 180.0, 90.0]
+	}
+}

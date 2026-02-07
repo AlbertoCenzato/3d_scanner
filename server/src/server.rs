@@ -1,12 +1,12 @@
-use crate::scanner;
-use log::{error, info, warn};
+use crate::scanner::{Scanner, ScannerError};
+use log::{debug, error, info, warn};
 use msg::command::Command;
 use msg::response::Response;
-use std::net::{SocketAddr, TcpStream};
-use std::sync::{mpsc, Arc};
+use std::net::TcpStream;
+use std::sync::mpsc;
 use tungstenite;
 
-pub fn run_websocket_server(port: u16, scanner: &mut scanner::Scanner) -> anyhow::Result<()> {
+pub fn run_websocket_server(port: u16, scanner: &mut Scanner) -> anyhow::Result<()> {
     info!("Starting WebSocket server...");
     let connection_string = format!("0.0.0.0:{port}");
     let server = std::net::TcpListener::bind(connection_string)?;
@@ -30,7 +30,14 @@ pub fn run_websocket_server(port: u16, scanner: &mut scanner::Scanner) -> anyhow
         };
 
         info!("New connection from {}", addr);
-        let client = match tungstenite::accept(stream) {
+        let res = stream.set_nonblocking(true);
+        if let Err(e) = res {
+            error!("Failed to set tcp stream in non-blocking mode, dropping connection: {e}");
+            continue;
+        }
+
+        let config = tungstenite::protocol::WebSocketConfig::default().write_buffer_size(0);
+        let client = match tungstenite::accept_with_config(stream, Some(config)) {
             Ok(client) => client,
             Err(e) => {
                 error!("Failed to accept WebSocket connection: {e}");
@@ -38,121 +45,118 @@ pub fn run_websocket_server(port: u16, scanner: &mut scanner::Scanner) -> anyhow
             }
         };
 
-        info!("WebSocket client connected: {}", addr);
-
-        match handle_connection(client, &addr, scanner) {
-            Ok(_) => info!("Closed connection with {addr}"),
-            Err(e) => {
-                error!("Error: {e} - connection with {addr} closed")
-            }
-        }
+        info!("WebSocket client connected: {addr}");
+        handle_connection(client, scanner);
+        info!("WebSocket client disconnected: {addr}");
     }
 
     return Ok(());
 }
 
-fn handle_connection(
-    connection: tungstenite::WebSocket<TcpStream>,
-    peer_address: &SocketAddr,
-    scanner: &mut scanner::Scanner,
-) -> anyhow::Result<()> {
-    let connection = Arc::new(std::sync::Mutex::new(connection));
-    let receiver = connection.clone();
-    let sender = connection.clone();
-
+/// # Warning
+/// This function expects the provided WebSocket to be in **non-blocking mode**.
+/// If the socket is blocking, the loop may hang or not behave as intended.
+fn handle_connection(mut connection: tungstenite::WebSocket<TcpStream>, scanner: &mut Scanner) {
     let (send_msg, outgoing_msgs) = mpsc::channel::<Response>();
 
-    let sender_thread = std::thread::spawn(move || {
-        info!("Sender thread started");
-        for msg in outgoing_msgs {
-            let data = msg.to_bytes().into();
-            let msg = tungstenite::Message::Binary(data);
-            let mut sender = sender.lock().unwrap();
-            if let Err(e) = sender.write(msg) {
-                error!("Failed to send message: {e}");
-            }
-        }
-        info!("Sender thread finished");
-    });
-
     loop {
-        let message_res = receiver.lock().unwrap().read();
-        let message = match message_res {
-            Ok(msg) => msg,
-            Err(e) => match e {
-                tungstenite::Error::ConnectionClosed => {
-                    info!("Connection closed by client: {peer_address}");
-                    break;
-                }
-                _ => {
-                    error!("Error reading message from client {peer_address}: {e}");
-                    error!("Closing connection with {peer_address}");
-                    break;
-                }
-            },
-        };
-
-        info!("Received message: {:?}", message);
-        let response = match message {
-            tungstenite::Message::Close(_) => {
-                info!("Client {peer_address} requested disconnection");
-                Response::Close
-            }
-            tungstenite::Message::Text(text) => {
-                info!("Text message received: {text}");
-                Response::Error("Text messages are not supported".to_string())
-            }
-            tungstenite::Message::Binary(bytes) => {
-                warn!("Binary message received, not supported");
-                match Command::from_bytes(&bytes) {
-                    Ok(command) => process_message(command, scanner, &send_msg),
-                    Err(e) => {
-                        error!("Failed to parse command: {e}");
-                        Response::Error(format!("Invalid command: {e}"))
-                    }
-                }
-            }
-            _ => {
-                warn!("Unsupported message type");
-                Response::Error("Unsupported message type".to_string())
-            }
-        };
-
-        let res = send_msg.send(response);
-        if let Err(e) = res {
-            error!("Internal send queue broken: {e}");
-            error!("Closing connection with {peer_address}");
+        //info!("Reading incoming messages");
+        let result = receive(&mut connection, scanner, &send_msg);
+        if let Err(e) = result {
+            error!("Failed to receive message: {e}");
             break;
         }
+
+        //info!("Sending outgoing messages");
+        send(&mut connection, &outgoing_msgs);
+
+        // sleep for a short duration to avoid busy-waiting
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
-    drop(send_msg); // Close the sender channel to stop the sender thread
-    sender_thread.join().expect("Failed to join sender thread");
+    if let Err(e) = scanner.stop() {
+        error!("Failed to stop scanner: {e}");
+    }
+}
+
+fn receive(
+    websocket: &mut tungstenite::WebSocket<std::net::TcpStream>,
+    scanner: &mut Scanner,
+    outbound_queue: &mpsc::Sender<Response>,
+) -> Result<(), tungstenite::Error> {
+    let message = match websocket.read() {
+        Ok(msg) => msg,
+        Err(e) => match e {
+            tungstenite::Error::Io(io_err) if std::io::ErrorKind::WouldBlock == io_err.kind() => {
+                // no message ready to be read yet
+                return Ok(());
+            }
+            _ => {
+                return Err(e);
+            }
+        },
+    };
+
+    debug!("Received message: {:?}", message);
+    let res = match message {
+        tungstenite::Message::Close(_) => {
+            info!("Client requested disconnection");
+            Response::Close
+        }
+        tungstenite::Message::Text(text) => {
+            info!("Text message received: {text}");
+            Response::Error("Text messages are not supported".to_string())
+        }
+        tungstenite::Message::Binary(bytes) => match Command::from_bytes(&bytes) {
+            Ok(command) => process_message(command, scanner, &outbound_queue),
+            Err(e) => {
+                error!("Failed to parse command: {e}");
+                Response::Error(format!("Invalid command: {e}"))
+            }
+        },
+        _ => {
+            warn!("Unsupported message type");
+            Response::Error("Unsupported message type".to_string())
+        }
+    };
+
+    let res = outbound_queue.send(res);
+    if let Err(e) = res {
+        error!("Internal send queue broken: {e}");
+    }
+
     return Ok(());
+}
+
+fn send(
+    websocket: &mut tungstenite::WebSocket<TcpStream>,
+    outbound_queue: &mpsc::Receiver<Response>,
+) {
+    for msg in outbound_queue.try_iter() {
+        let data: tungstenite::Bytes = msg.to_bytes().into();
+        log::debug!("Sending {} bytes", data.len());
+        let msg = tungstenite::Message::Binary(data);
+        if let Err(e) = websocket.write(msg) {
+            error!("Failed to send message: {e}");
+        }
+    }
 }
 
 fn process_message(
     command: msg::command::Command,
-    scanner: &mut scanner::Scanner,
+    scanner: &mut Scanner,
     sender: &mpsc::Sender<Response>,
 ) -> Response {
     use msg::command::Command as cmd;
     let response = match command {
-        cmd::Status => Ok(Response::Status(scanner.status())),
-        cmd::Replay => replay(scanner, sender.clone()),
+        cmd::Status => Err(ScannerError::CommandNotImplemented(cmd::Status.to_string())),
+        cmd::Replay => scanner.start(sender.clone()),
+        cmd::Stop => scanner.stop(),
     };
 
-    match response {
-        Ok(res) => res,
-        Err(e) => Response::Error(format!("Error processing command {command:?}: {e}")),
-    }
-}
-
-fn replay(
-    scanner: &mut scanner::Scanner,
-    sender: mpsc::Sender<Response>,
-) -> anyhow::Result<Response> {
-    info!("Replay command received. Starting replay...");
-    scanner.start(sender)?;
-    return Ok(msg::response::Response::Ok);
+    let response = match response {
+        Ok(()) => Response::Ok,
+        Err(error) => Response::Error(format!("Error processing command {command:?}: {error}")),
+    };
+    return response;
 }

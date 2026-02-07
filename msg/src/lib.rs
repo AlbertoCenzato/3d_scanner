@@ -7,6 +7,7 @@ pub mod command {
     pub enum Command {
         Status,
         Replay,
+        Stop,
     }
 
     impl Command {
@@ -16,6 +17,16 @@ pub mod command {
 
         pub fn to_bytes(&self) -> Vec<u8> {
             rmp_serde::to_vec(self).expect("Failed to serialize command")
+        }
+    }
+
+    impl std::fmt::Display for Command {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Command::Status => write!(f, "Status"),
+                Command::Replay => write!(f, "Replay"),
+                Command::Stop => write!(f, "Stop"),
+            }
         }
     }
 }

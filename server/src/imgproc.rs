@@ -1,39 +1,44 @@
 use crate::calibration;
 use crate::calibration::LaserCalib;
 use crate::logging;
-use crate::motor::StepperMotor;
 use log;
 
 const LOW_THRESHOLD: u8 = 30;
 
-pub fn process_image(
-    image: &image::GrayImage,
-    i: i64,
-    rec: &dyn logging::Logger,
-    angle_per_step: f32,
-    calib: &calibration::Calibration,
-    motor: &mut dyn StepperMotor,
-) -> Vec<glam::Vec3> {
-    rec.set_time_sequence("timeline", i as i64);
-    motor.step(1);
-    let _ = rec.log_image(
-        "world/image",
-        image::DynamicImage::ImageLuma8(image.clone()),
-    );
+pub struct ImageProcessor {
+    pub data_logger: logging::LoggerHandle,
+    pub calib: calibration::Calibration,
+}
 
-    let mut new_points = triangulate(&image, &calib);
+impl ImageProcessor {
+    pub fn process_image(
+        &self,
+        image: &image::GrayImage,
+        i: i64,
+        angle_per_step: f32,
+    ) -> Vec<glam::Vec3> {
+        self.data_logger.set_time_sequence("timeline", i as i64);
+        let _ = self.data_logger.log_image(
+            "world/image",
+            image::DynamicImage::ImageLuma8(image.clone()),
+        );
 
-    let transform = glam::Affine3A::from_rotation_z(-(i as f32) * angle_per_step);
-    for point in &mut new_points {
-        *point = transform.transform_point3(*point);
+        let mut new_points = triangulate(&image, &self.calib);
+
+        let transform = glam::Affine3A::from_rotation_z(-(i as f32) * angle_per_step);
+        for point in &mut new_points {
+            *point = transform.transform_point3(*point);
+        }
+
+        let _ = self
+            .data_logger
+            .log_points("world/points_3d_world", &new_points);
+        return new_points;
     }
-
-    let _ = rec.log_points("world/points_3d_world", &new_points);
-    return new_points;
 }
 
 fn triangulate(image: &image::GrayImage, calib: &calibration::Calibration) -> Vec<glam::Vec3> {
-    log::info!("Image info: dimensions {:?}", image.dimensions(),);
+    log::debug!("Image info: dimensions {:?}", image.dimensions(),);
 
     let width = image.width() as f32;
     let height = image.height() as f32;
