@@ -290,8 +290,7 @@ impl eframe::App for App {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
+        egui::SidePanel::left("control_buttons").show(ctx, |ui| {
             ui.heading("3D Scanner");
             ui.label(format!("GPU: {gpu_name}"));
             let state_str = to_string(state);
@@ -413,9 +412,10 @@ impl eframe::App for App {
                 None => "None",
             };
             ui.label(format!("Rendering pipeline context: {}", label));
+        });
 
-            ui.separator();
-
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // The central panel the region left after adding TopPanel's and SidePanel's
             ui.label("Point cloud:");
 
             let ctx = self.render_ctx.as_mut().unwrap();
