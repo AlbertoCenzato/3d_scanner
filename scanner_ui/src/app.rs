@@ -1,6 +1,6 @@
+use crate::js_bindings;
 use crate::point_cloud;
 use crate::render_ctx::{Point, RenderCtx};
-use crate::{draw, js_bindings};
 use msg;
 
 use glam::{Mat4, Vec3};
@@ -12,7 +12,6 @@ use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
 
 use wgpu;
-use wgpu::util::DeviceExt;
 
 static SERVER_IP: &str = "192.168.1.10";
 
@@ -95,12 +94,39 @@ impl Connection {
     }
 }
 
+struct RotateCmd {
+    vec: Vec3,
+    direction: f32,
+}
+
+impl RotateCmd {
+    fn new(vec: Vec3, direction: f32) -> Self {
+        assert!(direction == -1.0 || direction == 1.0);
+        Self { vec, direction }
+    }
+}
+
+enum UserInteraction {
+    Rotation(RotateCmd),
+    StatusRequest,
+    StartRequest,
+    StopRequest,
+    DownloadPly,
+}
+
 pub struct App {
     connection: Option<Connection>,
     status: msg::response::Status,
     points: Vec<Point>,
     render_ctx: Option<RenderCtx>,
     time_s: f32,
+    ui_state: UiState,
+}
+
+const ROTATION_SPEED: f32 = 0.1;
+
+#[derive(Clone)]
+struct UiState {
     freerun: bool,
 }
 
@@ -129,8 +155,137 @@ impl App {
             points: Vec::new(),
             render_ctx: None,
             time_s: 0.0,
-            freerun: false,
+            ui_state: UiState { freerun: false },
         }
+    }
+
+    fn draw_ui(
+        &self,
+        ctx: &egui::Context,
+        gpu_name: &str,
+        websocket_state: u16,
+        mut ui_state: UiState,
+    ) -> (Vec<UserInteraction>, UiState) {
+        fn add_resizable_image(ui: &mut egui::Ui, texture_id: eframe::epaint::TextureId) {
+            const TEXTURE_WIDTH: f32 = 800_f32;
+            const TEXTURE_HEIGHT: f32 = 600_f32;
+            const ASPECT_RATIO: f32 = TEXTURE_WIDTH / TEXTURE_HEIGHT;
+            let view_height = ui.available_height();
+            let view_width = ui.available_width();
+
+            let width_diff = view_width - TEXTURE_WIDTH;
+            let height_diff = view_height - TEXTURE_HEIGHT;
+            let scale = if width_diff < height_diff {
+                view_width / TEXTURE_WIDTH
+            } else {
+                view_height / TEXTURE_HEIGHT
+            };
+
+            ui.add(
+                egui::Image::new((texture_id, egui::Vec2::new(TEXTURE_WIDTH, TEXTURE_HEIGHT)))
+                    .maintain_aspect_ratio(true)
+                    .fit_to_original_size(scale),
+            );
+        }
+
+        fn rotation_btn(ui: &mut egui::Ui, label: &str, vec: Vec3) -> Option<RotateCmd> {
+            let mut rotation_cmd = None;
+            ui.horizontal(|ui| {
+                ui.label(label);
+                if ui.button("-").is_pointer_button_down_on() {
+                    rotation_cmd = Some(RotateCmd::new(vec, -1.0));
+                }
+                if ui.button("+").is_pointer_button_down_on() {
+                    rotation_cmd = Some(RotateCmd::new(vec, 1.0));
+                }
+            });
+            return rotation_cmd;
+        }
+
+        let mut commands = Vec::<UserInteraction>::new();
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            // The top panel is often a good place for a menu bar:
+            egui::menu::bar(ui, |ui| {
+                // NOTE: no File->Quit on web pages!
+                let is_web = cfg!(target_arch = "wasm32");
+                if !is_web {
+                    ui.menu_button("File", |ui| {
+                        if ui.button("Quit").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    });
+                    ui.add_space(16.0);
+                }
+
+                egui::widgets::global_theme_preference_buttons(ui);
+            });
+        });
+
+        egui::SidePanel::left("control_buttons").show(ctx, |ui| {
+            ui.heading("3D Scanner");
+            ui.label(format!("GPU: {gpu_name}"));
+            let state_str = to_string(websocket_state);
+            ui.label(format!("Connection state {state_str}"));
+
+            ui.separator();
+
+            ui.checkbox(&mut ui_state.freerun, "Freerun");
+
+            if let Some(rot_cmd) = rotation_btn(ui, "X", Vec3::X) {
+                commands.push(UserInteraction::Rotation(rot_cmd));
+            }
+            if let Some(rot_cmd) = rotation_btn(ui, "Y", Vec3::Y) {
+                commands.push(UserInteraction::Rotation(rot_cmd));
+            }
+            if let Some(rot_cmd) = rotation_btn(ui, "Z", Vec3::X) {
+                commands.push(UserInteraction::Rotation(rot_cmd));
+            }
+
+            if ui.button("Get Status").clicked() {
+                commands.push(UserInteraction::StatusRequest);
+            }
+
+            if ui.button("Start").clicked() {
+                commands.push(UserInteraction::StartRequest);
+            }
+
+            if ui.button("Stop").clicked() {
+                commands.push(UserInteraction::StopRequest);
+            }
+
+            ui.separator();
+
+            ui.label(format!("Motor speed: {}", self.status.motor_speed));
+            ui.label(format!("Laser 1: {}", self.status.lasers.laser_1));
+            ui.label(format!("Laser 2: {}", self.status.lasers.laser_2));
+
+            if ui.button("Download point cloud").clicked() {
+                commands.push(UserInteraction::DownloadPly);
+            }
+
+            ui.separator();
+
+            let label = match self.render_ctx {
+                Some(_) => "Some",
+                None => "None",
+            };
+            ui.label(format!("Rendering pipeline context: {}", label));
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            if let Some(render_ctx) = &self.render_ctx {
+                if let Some(texture_id) = render_ctx.texture_id {
+                    add_resizable_image(ui, texture_id);
+                }
+            }
+
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                powered_by_egui_and_eframe(ui);
+                egui::warn_if_debug_build(ui);
+            });
+        });
+
+        (commands, ui_state)
     }
 }
 
@@ -205,6 +360,15 @@ impl eframe::App for App {
             }
         }
 
+        let mut websocket_state = WebSocket::CLOSED;
+        if let Some(conn) = &self.connection {
+            websocket_state = conn.ws.ready_state();
+        }
+
+        let (commands, ui_state) =
+            self.draw_ui(ctx, &gpu_name, websocket_state, self.ui_state.clone());
+        self.ui_state = ui_state;
+
         if self.connection.is_none() {
             let port = msg::DEFAULT_SERVER_PORT;
             let url = format!("ws://{SERVER_IP}:{port}");
@@ -221,12 +385,7 @@ impl eframe::App for App {
             }
         }
 
-        let mut state = WebSocket::CLOSED;
-        if let Some(conn) = &self.connection {
-            state = conn.ws.ready_state();
-        }
-
-        let c = match state {
+        let c = match websocket_state {
             WebSocket::OPEN => Some(self.connection.as_mut().unwrap()),
             WebSocket::CONNECTING => None,
             WebSocket::CLOSING => None,
@@ -272,181 +431,68 @@ impl eframe::App for App {
             }
         }
 
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            // The top panel is often a good place for a menu bar:
-            egui::menu::bar(ui, |ui| {
-                // NOTE: no File->Quit on web pages!
-                let is_web = cfg!(target_arch = "wasm32");
-                if !is_web {
-                    ui.menu_button("File", |ui| {
-                        if ui.button("Quit").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        for command in commands {
+            match command {
+                UserInteraction::Rotation(rot) => {
+                    if let Some(ctx) = self.render_ctx.as_mut() {
+                        let step = rot.direction * ROTATION_SPEED;
+                        let q = glam::Quat::from_axis_angle(rot.vec, step);
+                        ctx.camera_position = ctx.camera_position * Mat4::from_quat(q);
+                    }
+                }
+                UserInteraction::StatusRequest => {
+                    log::info!("Sending status request");
+                    if let Some(conn) = &c {
+                        let command = msg::command::Command::Status;
+                        let res = conn.send_message(command);
+                        if let Err(e) = res {
+                            log::error!("Failed to send 'status' command: {}", e);
                         }
-                    });
-                    ui.add_space(16.0);
+                    }
                 }
-
-                egui::widgets::global_theme_preference_buttons(ui);
-            });
-        });
-
-        egui::SidePanel::left("control_buttons").show(ctx, |ui| {
-            ui.heading("3D Scanner");
-            ui.label(format!("GPU: {gpu_name}"));
-            let state_str = to_string(state);
-            ui.label(format!("Connection state {state_str}"));
-
-            ui.separator();
-
-            ui.checkbox(&mut self.freerun, "Freerun");
-
-            const ROTATION_SPEED: f32 = 0.1;
-            let mut rot_vec = Vec3::X;
-            let mut direction = 0_f32;
-
-            ui.horizontal(|ui| {
-                ui.label("X");
-                if ui.button("-").is_pointer_button_down_on() {
-                    rot_vec = Vec3::X;
-                    direction = -1.0;
+                UserInteraction::StartRequest => {
+                    log::info!("Sending start request");
+                    if let Some(conn) = &c {
+                        self.points.clear();
+                        let command = msg::command::Command::Replay;
+                        let res = conn.send_message(command);
+                        if let Err(e) = res {
+                            log::error!("Failed to send 'replay' command: {}", e);
+                        }
+                    }
                 }
-                if ui.button("+").is_pointer_button_down_on() {
-                    rot_vec = Vec3::X;
-                    direction = 1.0;
+                UserInteraction::StopRequest => {
+                    log::info!("Sending stop request");
+                    if let Some(conn) = &c {
+                        let command = msg::command::Command::Stop;
+                        let res = conn.send_message(command);
+                        if let Err(e) = res {
+                            log::error!("Failed to send 'stop' command: {}", e);
+                        }
+                    }
                 }
-            });
-            ui.horizontal(|ui| {
-                ui.label("Y");
-                if ui.button("-").is_pointer_button_down_on() {
-                    rot_vec = Vec3::Y;
-                    direction = -1.0;
-                }
-                if ui.button("+").is_pointer_button_down_on() {
-                    rot_vec = Vec3::Y;
-                    direction = 1.0;
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label("Z");
-                if ui.button("-").is_pointer_button_down_on() {
-                    rot_vec = Vec3::Z;
-                    direction = -1.0;
-                }
-                if ui.button("+").is_pointer_button_down_on() {
-                    rot_vec = Vec3::Z;
-                    direction = 1.0;
-                }
-            });
+                UserInteraction::DownloadPly => {
+                    // trigger download of point cloud in PLY format
+                    let ply_data = point_cloud::ply_encode(&self.points);
 
-            if let Some(ctx) = self.render_ctx.as_mut() {
-                let step = direction * ROTATION_SPEED;
-                let q = glam::Quat::from_axis_angle(rot_vec, step);
-                ctx.camera_position = ctx.camera_position * Mat4::from_quat(q);
-            }
+                    let len = ply_data.len() as u32;
+                    let ptr = ply_data.as_ptr() as u32;
 
-            let status_button = ui.button("Get Status");
-            if status_button.clicked() {
-                log::info!("Sending status request");
-                if let Some(conn) = &c {
-                    let command = msg::command::Command::Status;
-                    let res = conn.send_message(command);
-                    if let Err(e) = res {
-                        log::error!("Failed to send 'status' command: {}", e);
+                    let res =
+                        js_bindings::save_streaming_file_blocking(ptr, len, "point_cloud.ply");
+                    match res {
+                        Ok(_) => {
+                            log::info!("Point cloud download triggered");
+                        }
+                        Err(e) => {
+                            log::error!("Failed to trigger point cloud download: {:?}", e);
+                        }
                     }
                 }
             }
-
-            let start_button = ui.button("Start");
-            if start_button.clicked() {
-                log::info!("Sending start request");
-                if let Some(conn) = &c {
-                    self.points.clear();
-                    let command = msg::command::Command::Replay;
-                    let res = conn.send_message(command);
-                    if let Err(e) = res {
-                        log::error!("Failed to send 'replay' command: {}", e);
-                    }
-                }
-            }
-
-            let stop_button = ui.button("Stop");
-            if stop_button.clicked() {
-                log::info!("Sending stop request");
-                if let Some(conn) = &c {
-                    let command = msg::command::Command::Stop;
-                    let res = conn.send_message(command);
-                    if let Err(e) = res {
-                        log::error!("Failed to send 'stop' command: {}", e);
-                    }
-                }
-            }
-
-            ui.separator();
-
-            ui.label(format!("Motor speed: {}", self.status.motor_speed));
-            ui.label(format!("Laser 1: {}", self.status.lasers.laser_1));
-            ui.label(format!("Laser 2: {}", self.status.lasers.laser_2));
-
-            if ui.button("Download point cloud").clicked() {
-                // trigger download of point cloud in PLY format
-                let ply_data = point_cloud::ply_encode(&self.points);
-
-                let len = ply_data.len() as u32;
-                let ptr = ply_data.as_ptr() as u32;
-
-                let res = js_bindings::save_streaming_file_blocking(ptr, len, "point_cloud.ply");
-                match res {
-                    Ok(_) => {
-                        log::info!("Point cloud download triggered");
-                    }
-                    Err(e) => {
-                        log::error!("Failed to trigger point cloud download: {:?}", e);
-                    }
-                }
-            }
-
-            ui.separator();
-
-            let label = match self.render_ctx {
-                Some(_) => "Some",
-                None => "None",
-            };
-            ui.label(format!("Rendering pipeline context: {}", label));
-        });
-
-        fn add_resizable_image(ui: &mut egui::Ui, texture_id: eframe::epaint::TextureId) {
-            const TEXTURE_WIDTH: f32 = 800_f32;
-            const TEXTURE_HEIGHT: f32 = 600_f32;
-            const ASPECT_RATIO: f32 = TEXTURE_WIDTH / TEXTURE_HEIGHT;
-            let view_height = ui.available_height();
-            let view_width = ui.available_width();
-
-            let width_diff = view_width - TEXTURE_WIDTH;
-            let height_diff = view_height - TEXTURE_HEIGHT;
-            let scale = if width_diff < height_diff {
-                view_width / TEXTURE_WIDTH
-            } else {
-                view_height / TEXTURE_HEIGHT
-            };
-
-            ui.add(
-                egui::Image::new((texture_id, egui::Vec2::new(TEXTURE_WIDTH, TEXTURE_HEIGHT)))
-                    .maintain_aspect_ratio(true)
-                    .fit_to_original_size(scale),
-            );
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let render_ctx = self.render_ctx.as_mut().unwrap();
-
-            add_resizable_image(ui, render_ctx.texture_id.unwrap());
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                powered_by_egui_and_eframe(ui);
-                egui::warn_if_debug_build(ui);
-            });
-        });
-
-        if self.freerun {
+        if self.ui_state.freerun {
             ctx.request_repaint(); // triggers a repaint as soon as possible
         }
     }
